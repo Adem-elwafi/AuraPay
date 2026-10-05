@@ -1,7 +1,6 @@
 package com.smartwallet.service;
 
 import com.smartwallet.dto.TransactionResponse;
-import com.smartwallet.dto.DepositRequest;
 import com.smartwallet.exception.InsufficientBalanceException;
 import com.smartwallet.model.TransactionCategory;
 import com.smartwallet.dto.TransferRequest;
@@ -75,42 +74,55 @@ public class WalletService {
      * @param senderUsername L'utilisateur effectuant le virement
      * @param transferRequest Les détails du virement
      * @return La transaction créée
-     * @throws IllegalArgumentException si le solde est insuffisant, le compte destinataire n'existe pas, ou le virement est vers soi-même
+     * @throws IllegalArgumentException si le montant est invalide, le compte destinataire n'existe pas, ou le virement est vers soi-même
+     * @throws InsufficientBalanceException si le solde est insuffisant
      */
     @Transactional
     public TransactionResponse transfer(String senderUsername, TransferRequest transferRequest) {
-        // Récupérer le wallet de l'expéditeur
-        Wallet senderWallet = walletRepository.findByUserId(
-                userRepository.findByUsername(senderUsername)
-                        .orElseThrow(() -> new UsernameNotFoundException("Sender user not found"))
-                        .getId()
-        ).orElseThrow(() -> new RuntimeException("Sender wallet not found"));
+        BigDecimal amount = transferRequest.amount();
+        validateAmount(amount, "Transfer");
 
-        // Récupérer le wallet du destinataire
-        Wallet receiverWallet = walletRepository.findByAccountNumber(transferRequest.recipientAccountNumber())
+        String recipientAccountNumber = transferRequest.recipientAccountNumber();
+        if (recipientAccountNumber == null || recipientAccountNumber.isBlank()) {
+            throw new IllegalArgumentException("Recipient account number is required");
+        }
+
+        User sender = userRepository.findByUsername(senderUsername)
+                .orElseThrow(() -> new UsernameNotFoundException("Sender user not found"));
+
+        Long senderWalletId = walletRepository.findIdByUserId(sender.getId())
+                .orElseThrow(() -> new RuntimeException("Sender wallet not found"));
+        Long receiverWalletId = walletRepository.findIdByAccountNumber(recipientAccountNumber.trim())
                 .orElseThrow(() -> new IllegalArgumentException("Recipient account not found"));
 
         // Vérifier que l'expéditeur ne s'envoie pas d'argent à lui-même
-        if (senderWallet.getId().equals(receiverWallet.getId())) {
+        if (senderWalletId.equals(receiverWalletId)) {
             throw new IllegalArgumentException("Cannot transfer money to the same account");
         }
 
+        // Verrouiller les deux wallets toujours dans le même ordre (ID croissant) pour éviter les deadlocks
+        Wallet first = lockWallet(Math.min(senderWalletId, receiverWalletId));
+        Wallet second = lockWallet(Math.max(senderWalletId, receiverWalletId));
+        Wallet senderWallet = first.getId().equals(senderWalletId) ? first : second;
+        Wallet receiverWallet = first.getId().equals(senderWalletId) ? second : first;
+
         // Vérifier que le solde est suffisant
-        if (senderWallet.getBalance().compareTo(transferRequest.amount()) < 0) {
-            throw new IllegalArgumentException("Insufficient balance");
+        if (senderWallet.getBalance().compareTo(amount) < 0) {
+            throw new InsufficientBalanceException("Insufficient balance");
         }
 
         // Effectuer le transfert : débiter l'expéditeur et créditer le destinataire
-        senderWallet.setBalance(senderWallet.getBalance().subtract(transferRequest.amount()));
-        receiverWallet.setBalance(receiverWallet.getBalance().add(transferRequest.amount()));
+        senderWallet.setBalance(senderWallet.getBalance().subtract(amount));
+        receiverWallet.setBalance(receiverWallet.getBalance().add(amount));
 
         // Sauvegarder les wallets
         walletRepository.save(senderWallet);
         walletRepository.save(receiverWallet);
 
-        // Créer et sauvegarder les transactions (DEBIT pour l'expéditeur, CREDIT pour le destinataire)
+        // Une seule ligne est enregistrée : DEBIT du point de vue de l'expéditeur ;
+        // le destinataire la lit comme un crédit (receiverWallet == son wallet)
         Transaction senderTransaction = Transaction.builder()
-                .amount(transferRequest.amount())
+                .amount(amount)
                 .timestamp(LocalDateTime.now())
                 .type(Transaction.TransactionType.DEBIT)
                 .category(TransactionCategory.AUTRE)
@@ -130,9 +142,7 @@ public class WalletService {
 
     @Transactional
     public TransactionResponse createExpense(String username, BigDecimal amount, TransactionCategory category, String description) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Expense amount must be greater than zero");
-        }
+        validateAmount(amount, "Expense");
 
         if (category == null) {
             throw new IllegalArgumentException("Expense category is required");
@@ -141,13 +151,10 @@ public class WalletService {
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        Wallet wallet = walletRepository.findByUserId(user.getId())
+        Wallet wallet = walletRepository.findByUserIdForUpdate(user.getId())
                 .orElseThrow(() -> new RuntimeException("Wallet not found for this user"));
 
-        if (wallet.getBalance().compareTo(amount) < 0) {
-            throw new InsufficientBalanceException("Insufficient balance for expense");
-        }
-
+        // Dépenses personnelles : enregistrement possible même si le solde virtuel est insuffisant/nul
         wallet.setBalance(wallet.getBalance().subtract(amount));
         walletRepository.save(wallet);
 
@@ -171,14 +178,12 @@ public class WalletService {
 
     @Transactional
     public TransactionResponse deposit(String username, BigDecimal amount) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Deposit amount must be greater than zero");
-        }
+        validateAmount(amount, "Deposit");
 
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found"));
 
-        Wallet wallet = walletRepository.findByUserId(user.getId())
+        Wallet wallet = walletRepository.findByUserIdForUpdate(user.getId())
                 .orElseThrow(() -> new RuntimeException("Wallet not found for this user"));
 
         wallet.setBalance(wallet.getBalance().add(amount));
@@ -200,6 +205,24 @@ public class WalletService {
         notificationService.sendWalletUpdate(username, new WalletResponse(wallet.getAccountNumber(), wallet.getBalance(), wallet.getCurrency()));
 
         return TransactionResponse.fromEntity(savedDeposit);
+    }
+
+    private Wallet lockWallet(Long walletId) {
+        return walletRepository.findByIdForUpdate(walletId)
+                .orElseThrow(() -> new IllegalArgumentException("Wallet not found"));
+    }
+
+    /**
+     * Le montant doit être strictement positif et avoir au plus 3 décimales
+     * (pour supporter les millimes tunisiens TND).
+     */
+    private void validateAmount(BigDecimal amount, String operation) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(operation + " amount must be greater than zero");
+        }
+        if (amount.stripTrailingZeros().scale() > 3) {
+            throw new IllegalArgumentException(operation + " amount cannot have more than 3 decimal places");
+        }
     }
 
 }

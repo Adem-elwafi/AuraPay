@@ -33,7 +33,18 @@ public class ProfileController {
             @RequestBody UpdateProfileRequest request
     ) {
         User user = getCurrentUser(authentication);
-        user.setEmail(request.getEmail());
+
+        // L'email est obligatoire et unique : on conserve l'actuel si absent, on refuse un doublon
+        String email = request.getEmail();
+        if (email != null && !email.isBlank()) {
+            String trimmedEmail = email.trim();
+            userRepository.findByEmail(trimmedEmail)
+                    .filter(other -> !other.getId().equals(user.getId()))
+                    .ifPresent(other -> {
+                        throw new IllegalArgumentException("Email already in use");
+                    });
+            user.setEmail(trimmedEmail);
+        }
         user.setFullName(request.getFullName());
         user.setAvatarUrl(request.getAvatarUrl());
 

@@ -4,7 +4,6 @@ import com.smartwallet.dto.ChartDataPoint;
 import com.smartwallet.dto.DashboardStatsResponse;
 import com.smartwallet.model.Transaction;
 import com.smartwallet.model.Transaction.TransactionType;
-import com.smartwallet.model.TransactionCategory;
 import com.smartwallet.model.User;
 import com.smartwallet.model.Wallet;
 import com.smartwallet.repository.TransactionRepository;
@@ -32,7 +31,7 @@ import java.util.Map;
 @Transactional(readOnly = true)
 public class AnalyticsService {
 
-    private static final double DEFAULT_TREND = 12.0d;
+    private static final double DEFAULT_TREND = 100.0d;
     private static final DateTimeFormatter CHART_LABEL_FORMATTER = DateTimeFormatter.ofPattern("dd MMM", Locale.FRENCH);
 
     private final UserRepository userRepository;
@@ -51,12 +50,12 @@ public class AnalyticsService {
         LocalDateTime previousStart = previousMonth.atDay(1).atStartOfDay();
         LocalDateTime previousEnd = currentStart;
 
-        BigDecimal currentRevenues = sumTransactions(transactions, currentStart, currentEnd, true);
-        BigDecimal currentExpenses = sumTransactions(transactions, currentStart, currentEnd, false);
+        BigDecimal currentRevenues = sumTransactions(transactions, wallet.getId(), currentStart, currentEnd, true);
+        BigDecimal currentExpenses = sumTransactions(transactions, wallet.getId(), currentStart, currentEnd, false);
         BigDecimal currentSavings = currentRevenues.subtract(currentExpenses);
 
-        BigDecimal previousRevenues = sumTransactions(transactions, previousStart, previousEnd, true);
-        BigDecimal previousExpenses = sumTransactions(transactions, previousStart, previousEnd, false);
+        BigDecimal previousRevenues = sumTransactions(transactions, wallet.getId(), previousStart, previousEnd, true);
+        BigDecimal previousExpenses = sumTransactions(transactions, wallet.getId(), previousStart, previousEnd, false);
         BigDecimal previousSavings = previousRevenues.subtract(previousExpenses);
 
         return new DashboardStatsResponse(
@@ -93,7 +92,7 @@ public class AnalyticsService {
             }
 
             LocalDate transactionDate = timestamp.toLocalDate();
-            BigDecimal signedAmount = signedAmount(transaction);
+            BigDecimal signedAmount = signedAmount(transaction, wallet.getId());
             dailyNetChanges.computeIfPresent(transactionDate, (date, current) -> current.add(signedAmount));
             netSinceStart = netSinceStart.add(signedAmount);
         }
@@ -118,7 +117,7 @@ public class AnalyticsService {
                 .orElseThrow(() -> new IllegalStateException("Wallet not found for this user"));
     }
 
-    private BigDecimal sumTransactions(List<Transaction> transactions, LocalDateTime start, LocalDateTime end, boolean revenues) {
+    private BigDecimal sumTransactions(List<Transaction> transactions, Long walletId, LocalDateTime start, LocalDateTime end, boolean revenues) {
         BigDecimal total = BigDecimal.ZERO;
 
         for (Transaction transaction : transactions) {
@@ -127,11 +126,7 @@ public class AnalyticsService {
                 continue;
             }
 
-            if (revenues) {
-                if (isRevenueTransaction(transaction)) {
-                    total = total.add(safeAmount(transaction.getAmount()));
-                }
-            } else if (isExpenseTransaction(transaction)) {
+            if (isIncoming(transaction, walletId) == revenues) {
                 total = total.add(safeAmount(transaction.getAmount()));
             }
         }
@@ -139,18 +134,27 @@ public class AnalyticsService {
         return total;
     }
 
-    private boolean isRevenueTransaction(Transaction transaction) {
-        return transaction.getType() == TransactionType.CREDIT
-                || transaction.getCategory() == TransactionCategory.REVENUS;
+    /**
+     * Un virement n'est stocké qu'une fois (type DEBIT, côté expéditeur) : le sens doit donc
+     * être déterminé par rapport au wallet consulté, et non par le seul type ou la catégorie.
+     * - dépôt : sender == receiver == wallet, type CREDIT → entrée
+     * - virement reçu : receiver == wallet, sender != wallet → entrée
+     * - virement envoyé / dépense : sender == wallet → sortie
+     */
+    private boolean isIncoming(Transaction transaction, Long walletId) {
+        Wallet receiver = transaction.getReceiverWallet();
+        if (receiver == null || !walletId.equals(receiver.getId())) {
+            return false;
+        }
+
+        Wallet sender = transaction.getSenderWallet();
+        boolean selfReferenced = sender != null && walletId.equals(sender.getId());
+        return !selfReferenced || transaction.getType() == TransactionType.CREDIT;
     }
 
-    private boolean isExpenseTransaction(Transaction transaction) {
-        return transaction.getType() == TransactionType.DEBIT;
-    }
-
-    private BigDecimal signedAmount(Transaction transaction) {
+    private BigDecimal signedAmount(Transaction transaction, Long walletId) {
         BigDecimal amount = safeAmount(transaction.getAmount());
-        return transaction.getType() == TransactionType.CREDIT ? amount : amount.negate();
+        return isIncoming(transaction, walletId) ? amount : amount.negate();
     }
 
     private BigDecimal safeAmount(BigDecimal amount) {
@@ -162,7 +166,7 @@ public class AnalyticsService {
         BigDecimal currentValue = safeAmount(current);
 
         if (previousValue.compareTo(BigDecimal.ZERO) == 0) {
-            return currentValue.compareTo(BigDecimal.ZERO) == 0 ? 0.0d : DEFAULT_TREND;
+            return currentValue.signum() * DEFAULT_TREND;
         }
 
         BigDecimal change = currentValue.subtract(previousValue);

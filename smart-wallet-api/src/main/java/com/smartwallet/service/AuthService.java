@@ -13,6 +13,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
+import java.util.Set;
+
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -25,11 +28,22 @@ public class AuthService {
 
     @Transactional
     public AuthenticationResponse register(RegisterRequest request) {
+        if (isBlank(request.getUsername()) || isBlank(request.getEmail()) || isBlank(request.getPassword())) {
+            throw new IllegalArgumentException("Username, email and password are required");
+        }
+        if (userRepository.findByUsername(request.getUsername().trim()).isPresent()) {
+            throw new IllegalArgumentException("Username already in use");
+        }
+        if (userRepository.findByEmail(request.getEmail().trim()).isPresent()) {
+            throw new IllegalArgumentException("Email already in use");
+        }
+
         var user = User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
+                .username(request.getUsername().trim())
+                .email(request.getEmail().trim())
+                .fullName(request.getFullName())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .roles(request.getRoles())
+                .roles(new HashSet<>(Set.of("ROLE_USER")))
                 .build();
 
         var savedUser = userRepository.save(user);
@@ -41,15 +55,20 @@ public class AuthService {
     }
 
     public AuthenticationResponse authenticate(LoginRequest request) {
+        String identifier = request.getUsername() != null ? request.getUsername().trim() : "";
         authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+                new UsernamePasswordAuthenticationToken(identifier, request.getPassword())
         );
 
-        var user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow();
+        var user = userRepository.findByUsernameIgnoreCaseOrEmailIgnoreCase(identifier, identifier)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
         return AuthenticationResponse.builder()
                 .token(jwtService.generateToken(user))
                 .build();
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

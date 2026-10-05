@@ -44,7 +44,7 @@ public class TransactionController {
                     transferRequest
             );
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (IllegalArgumentException e) {
+        } catch (InsufficientBalanceException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         } catch (UsernameNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -104,9 +104,7 @@ public class TransactionController {
                     expenseRequest.description()
             );
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (InsufficientBalanceException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        } catch (IllegalArgumentException e) {
+        } catch (InsufficientBalanceException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         } catch (UsernameNotFoundException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
