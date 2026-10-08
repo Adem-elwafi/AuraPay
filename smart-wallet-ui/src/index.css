@@ -1,68 +1,184 @@
 @import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Playfair+Display:wght@700;800&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Playfair+Display:wght@700;800&display=swap");
 
-@theme {
-  --color-brand-bg: oklch(14% 0.02 260);
-  --color-brand-surface: oklch(18% 0.03 260);
-  --color-brand-fg: oklch(98% 0.01 240);
-  --color-brand-muted: oklch(70% 0.02 240);
-  --color-brand-accent: oklch(72% 0.16 195);
-  --color-brand-danger: oklch(62% 0.22 15);
-  --color-brand-border: rgba(255, 255, 255, 0.1);
+/* ------------------------------------------------------------------
+   Design tokens — Crisp White & Emerald Luxe (default, emerald & light)
+   and Cyber Obsidian & Luxury Emerald (dark & gold)
+   ------------------------------------------------------------------ */
 
-  --font-display: 'Playfair Display', Georgia, serif;
-  --font-body: 'Inter', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+/* Default & White Mode: Crisp White & Emerald Luxe */
+:root,
+[data-theme="emerald"],
+[data-theme="light"] {
+  --accent: #10b981;
+  --accent-light: #34d399;
+  --accent-strong: #059669;
+  --accent-ink: #ffffff;
+  --accent-soft: #ecfdf5;
+  --accent-text: #047857;
+  --accent-10: rgba(16, 185, 129, 0.1);
+  --accent-15: rgba(16, 185, 129, 0.15);
+  --accent-20: rgba(16, 185, 129, 0.2);
+  --accent-25: rgba(16, 185, 129, 0.25);
+  --accent-30: rgba(16, 185, 129, 0.3);
+  --accent-40: rgba(16, 185, 129, 0.4);
+  --aura-1: rgba(16, 185, 129, 0.15);
+  --aura-2: rgba(52, 211, 153, 0.08);
 
-  --radius-premium: 16px;
+  --bg: #ffffff;
+  --bg-2: #f8fafc;
+  --surface: #ffffff;
+  --surface-1: #ffffff; /* opaque sheet / modal surface (BottomSheet, reset modal, PWA banner) */
+  --surface-2: #f1f5f9;
+  --surface-3: #e2e8f0;
+  --line: rgba(16, 185, 129, 0.15);
+  --line-strong: rgba(16, 185, 129, 0.3);
 
-  --animate-fade-in: fadeIn 0.6s ease-out forwards;
+  --text: #0f172a;
+  --muted: #64748b;
+  --subtle: #94a3b8;
 
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+  --fg: #0f172a;
+  --border: rgba(16, 185, 129, 0.15);
+
+  --positive: #059669;
+  --negative: #e11d48;
+  --negative-15: rgba(225, 29, 72, 0.1);
+  --danger: #e11d48;
+
+  --card-grad: linear-gradient(135deg, #064e3b 0%, #065f46 45%, #047857 75%, #022c22 100%);
+  --card-ink: #ffffff;
+
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-blur: blur(16px);
+  --shadow-glow: 0 10px 30px -10px rgba(16, 185, 129, 0.2);
 }
 
-:root {
-  /* Brand Spec Variables */
-  --bg: oklch(14% 0.02 260);
-  --surface: oklch(18% 0.03 260);
-  --fg: oklch(98% 0.01 240);
-  --muted: oklch(70% 0.02 240);
-  --border: rgba(255, 255, 255, 0.1);
-  --accent: oklch(72% 0.16 195);
-  --danger: oklch(62% 0.22 15);
+/* Dark Mode: Luxury Obsidian & Radiant Emerald Banking Palette */
+[data-theme="dark"],
+[data-theme="gold"] {
+  --accent: #10b981;
+  --accent-light: #34d399;
+  --accent-strong: #059669;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(16, 185, 129, 0.12);
+  --accent-text: #10b981;
+  --accent-10: rgba(16, 185, 129, 0.1);
+  --accent-15: rgba(16, 185, 129, 0.15);
+  --accent-20: rgba(16, 185, 129, 0.2);
+  --accent-25: rgba(16, 185, 129, 0.25);
+  --accent-30: rgba(16, 185, 129, 0.3);
+  --accent-40: rgba(16, 185, 129, 0.4);
+  --aura-1: rgba(16, 185, 129, 0.08);
+  --aura-2: rgba(52, 211, 153, 0.05);
 
-  --glass-bg: rgba(15, 23, 42, 0.6);
-  --glass-blur: blur(12px);
-  
-  --shadow-glow: 0 0 20px rgba(6, 182, 212, 0.15);
-  
+  --bg: #070A09;
+  --bg-2: #0A0F0D;
+  --surface: #0D1612;
+  --surface-1: #0F1914; /* between --surface and --surface-2, always opaque */
+  --surface-2: #131F1A;
+  --surface-3: #182822;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(16, 185, 129, 0.22);
+
+  --text: #f8fafc;
+  --muted: #82998f;
+  --subtle: #52665e;
+
+  --fg: #f8fafc;
+  --border: rgba(255, 255, 255, 0.07);
+
+  --positive: #10b981;
+  --negative: #fb7185;
+  --negative-15: rgba(251, 113, 133, 0.12);
+  --danger: #fb7185;
+
+  --card-grad: linear-gradient(135deg, #10b981 0%, #059669 40%, #047857 70%, #064e3b 100%);
+  --card-ink: #ffffff;
+
+  --glass-bg: rgba(13, 22, 18, 0.85);
+  --glass-blur: blur(20px);
+  --shadow-glow: 0 0 35px -5px rgba(16, 185, 129, 0.35);
+}
+
+/* Single z-index scale (header < bottom nav < PWA banner < sheet < modal < toast) */
+:root {
+  --z-header: 40;
+  --z-bottomnav: 45;
+  --z-banner: 48;
+  --z-sheet: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+}
+
+@theme {
+  --color-brand-bg: var(--bg);
+  --color-brand-surface: var(--surface);
+  --color-brand-fg: var(--text);
+  --color-brand-muted: var(--muted);
+  --color-brand-accent: var(--accent);
+  --color-brand-danger: var(--negative);
+  --color-brand-border: var(--line);
+
+  --font-display: "Instrument Serif", "Playfair Display", Georgia, serif;
+  --font-ui: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius-premium: 16px;
+}
+
+html {
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="dark"],
+html[data-theme="gold"] {
   color-scheme: dark;
-  font-family: var(--font-body);
-  background-color: var(--bg);
-  color: var(--fg);
 }
 
 * {
   box-sizing: border-box;
 }
 
-#root {
-  min-height: 100vh;
-}
-
 body {
   margin: 0;
   min-height: 100vh;
   font-family: var(--font-body);
-  background: 
-    radial-gradient(circle at top left, rgba(6, 182, 212, 0.1), transparent 40%),
-    radial-gradient(circle at bottom right, rgba(244, 63, 94, 0.05), transparent 40%),
-    var(--bg);
+  background: var(--bg);
+  color: var(--text);
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Utilities -------------------------------------------------------- */
+.font-display {
+  font-family: "Instrument Serif", "Playfair Display", Georgia, serif;
+}
+
+.font-ui {
+  font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
 }
 
 .glass {
@@ -70,15 +186,7 @@ body {
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-}
-
-.animate-fade-in {
-  animation: var(--animate-fade-in);
-}
-
-.font-mono {
-  font-family: var(--font-mono);
+  box-shadow: 0 8px 30px 0 rgba(15, 23, 42, 0.08);
 }
 
 .dashboard-grid {
@@ -95,13 +203,92 @@ body {
   }
 }
 
-/* Light Theme Toggle via CSS Filter Trick */
-html.light-theme {
-  filter: invert(1) hue-rotate(180deg);
+/* Motion & Keyframe animations ------------------------------------ */
+@keyframes sw-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
-html.light-theme img,
-html.light-theme video,
-html.light-theme [data-reverse-invert="true"] {
-  filter: invert(1) hue-rotate(180deg);
+@keyframes sw-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(2deg); }
 }
+
+@keyframes sw-spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+@keyframes sw-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes sw-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sw-float   { animation: sw-float 7s ease-in-out infinite; }
+.sw-float-2 { animation: sw-float 8s ease-in-out -2s infinite; }
+.sw-float-3 { animation: sw-float 9s ease-in-out -4s infinite; }
+.sw-tilt    { animation: sw-tilt 6s ease-in-out infinite; }
+.sw-orbit   { animation: sw-spin 90s linear infinite; }
+.sw-orbit-r { animation: sw-spin 140s linear infinite reverse; }
+.sw-glow    { animation: sw-pulse 3.5s ease-in-out infinite; }
+.sw-pulse   { animation: sw-pulse 2s ease-in-out infinite; }
+.sw-rise    { animation: sw-rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.animate-fade-in { animation: fadeIn 0.6s ease-out forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-float,
+  .sw-float-2,
+  .sw-float-3,
+  .sw-tilt,
+  .sw-orbit,
+  .sw-orbit-r,
+  .sw-glow,
+  .sw-pulse,
+  .sw-rise,
+  .animate-fade-in {
+    animation: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------
+   Custom Scrollbar matching Vaultis Cloud Emerald Luxe Identity
+   ------------------------------------------------------------------ */
+.sidebar-scrollbar,
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent-30) transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar,
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-track,
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb,
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--accent-25);
+  border-radius: 9999px;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb:hover,
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-40);
+}
+
