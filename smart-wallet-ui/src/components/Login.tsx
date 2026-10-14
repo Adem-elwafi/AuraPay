@@ -1,105 +1,182 @@
-import { Loader2, Lock, LogIn, Sparkles, User } from 'lucide-react'
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import api from '../api/axiosConfig'
-import type { AuthResponse } from '../api/types'
+import { useState, useEffect, type FormEvent, type ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react'
+import { getApiErrorMessage } from '../api/axiosConfig'
 import { useAuth } from '../context/AuthContext'
+import Button from './ui/Button'
+import TextField from './ui/TextField'
 
-function Login() {
-    const navigate = useNavigate()
-    const { loginSuccess } = useAuth()
-    const [credentials, setCredentials] = useState({ username: '', password: '' })
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+const REMEMBER_KEY = 'vaultis_remembered_user'
+const LEGACY_REMEMBER_KEY = 'smartwallet_remembered_user'
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setLoading(true)
-        setError(null)
+export default function Login() {
+  const navigate = useNavigate()
+  const { login } = useAuth()
 
-        try {
-            const response = await api.post<AuthResponse>('/v1/auth/authenticate', credentials)
-            await loginSuccess(response.data.token)
-            navigate('/dashboard')
-        } catch (requestError) {
-            console.error('Erreur de connexion', requestError)
-            setError('Impossible de démarrer la session. Vérifiez vos identifiants.')
-        } finally {
-            setLoading(false)
-        }
+  const [form, setForm] = useState({
+    identifier: '',
+    password: '',
+    remember: true,
+  })
+  const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({})
+  const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+
+  // Load remembered user if present
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(REMEMBER_KEY) || localStorage.getItem(LEGACY_REMEMBER_KEY)
+      if (saved) {
+        setForm((prev) => ({ ...prev, identifier: saved, remember: true }))
+      }
+    } catch {
+      /* ignore storage access error */
     }
+  }, [])
 
-    return (
-        <div className="rounded-[28px] border border-white/8 bg-black/30 p-8 shadow-2xl shadow-black/40 backdrop-blur-md lg:p-10">
-            <div className="mb-8">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-200">
-                    <Sparkles className="h-3 w-3" />
-                    Secure access
-                </div>
-                <h2 className="text-2xl font-semibold text-white">Welcome back</h2>
-                <p className="mt-2 text-sm text-zinc-400">Please enter your credentials to access your SmartWallet dashboard.</p>
-            </div>
+  const update = (key: 'identifier' | 'password' | 'remember') => (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+    setForm((f) => ({ ...f, [key]: value }))
+    if (errors[key as 'identifier' | 'password']) {
+      setErrors((er) => ({ ...er, [key]: undefined }))
+    }
+    if (serverError) setServerError(null)
+  }
 
-            {error ? (
-                <div className="mb-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-                    {error}
-                </div>
-            ) : null}
+  const validate = () => {
+    const next: { identifier?: string; password?: string } = {}
+    const id = form.identifier.trim()
+    if (!id) {
+      next.identifier = "Saisissez votre nom d'utilisateur ou e-mail."
+    }
+    if (!form.password) {
+      next.password = 'Saisissez votre mot de passe.'
+    } else if (form.password.length < 4) {
+      next.password = 'Le mot de passe doit comporter au moins 4 caractères.'
+    }
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-                <label className="block space-y-2 text-left">
-                    <span className="ml-1 text-xs font-medium uppercase tracking-widest text-zinc-400">Username</span>
-                    <div className="group relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                            <User className="h-5 w-5 text-zinc-500 transition-colors group-focus-within:text-amber-300/70" />
-                        </div>
-                        <input
-                            type="text"
-                            value={credentials.username}
-                            required
-                            className="block w-full rounded-xl border border-white/8 bg-white/3 py-3 pl-11 pr-4 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-amber-300/50 focus:ring-1 focus:ring-amber-300/50"
-                            placeholder="adem_dev"
-                            onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
-                        />
-                    </div>
-                </label>
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setServerError(null)
 
-                <label className="block space-y-2 text-left">
-                    <span className="ml-1 text-xs font-medium uppercase tracking-widest text-zinc-400">Password</span>
-                    <div className="group relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                            <Lock className="h-5 w-5 text-zinc-500 transition-colors group-focus-within:text-amber-300/70" />
-                        </div>
-                        <input
-                            type="password"
-                            value={credentials.password}
-                            required
-                            className="block w-full rounded-xl border border-white/8 bg-white/3 py-3 pl-11 pr-4 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-amber-300/50 focus:ring-1 focus:ring-amber-300/50"
-                            placeholder="••••••••"
-                            onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
-                        />
-                    </div>
-                </label>
+    if (!validate()) return
 
-                <button
-                    disabled={loading}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,rgba(250,204,21,0.95),rgba(202,138,4,0.95))] px-4 py-4 font-semibold text-zinc-950 shadow-[0_18px_40px_-15px_rgba(202,138,4,0.45)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-12px_rgba(202,138,4,0.55)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
-                >
-                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <LogIn className="h-5 w-5" />}
-                    <span>{loading ? 'Connexion...' : 'Sign in'}</span>
-                </button>
-            </form>
+    setLoading(true)
 
-            <div className="mt-8 border-t border-white/5 pt-6 text-center text-sm text-zinc-500">
-                <p>
-                    Pas encore de compte ?{' '}
-                    <Link to="/register" className="font-medium text-amber-200 transition-colors hover:text-amber-100">
-                        Créer un compte
-                    </Link>
-                </p>
-            </div>
+    try {
+      if (form.remember) {
+        localStorage.setItem(REMEMBER_KEY, form.identifier.trim())
+      } else {
+        localStorage.removeItem(REMEMBER_KEY)
+        localStorage.removeItem(LEGACY_REMEMBER_KEY)
+      }
+
+      await login({
+        username: form.identifier.trim(),
+        password: form.password,
+      })
+
+      navigate('/dashboard')
+    } catch (err: unknown) {
+      console.error('Erreur de connexion', err)
+      setServerError(
+        getApiErrorMessage(err, 'Identifiants incorrects ou session impossible à démarrer. Veuillez réessayer.')
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="w-full">
+      {serverError && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600" />
+          <span className="leading-relaxed">{serverError}</span>
         </div>
-    )
-}
+      )}
 
-export default Login
+      <form noValidate onSubmit={handleSubmit} className="space-y-3.5">
+        <TextField
+          label="Nom d'utilisateur ou e-mail"
+          icon={Mail}
+          type="text"
+          inputMode="text"
+          autoComplete="username"
+          placeholder="ex: adem_dev ou adem@smartwallet.com"
+          value={form.identifier}
+          onChange={update('identifier')}
+          error={errors.identifier}
+          containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+          inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+          autoFocus
+        />
+
+        <TextField
+          label="Mot de passe"
+          icon={Lock}
+          type={showPassword ? 'text' : 'password'}
+          autoComplete="current-password"
+          placeholder="••••••••"
+          value={form.password}
+          onChange={update('password')}
+          error={errors.password}
+          containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+          inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+          trailing={
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+              className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-700 cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          }
+        />
+
+        <div className="flex items-center justify-between pt-0.5">
+          <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-slate-600 transition hover:text-slate-900">
+            <input
+              type="checkbox"
+              checked={form.remember}
+              onChange={update('remember')}
+              className="h-3.5 w-3.5 rounded border-slate-300 accent-emerald-600 cursor-pointer"
+            />
+            Se souvenir de moi
+          </label>
+          <a
+            href="#"
+            onClick={(e) => {
+              e.preventDefault()
+              alert('Veuillez contacter le support Vaultis pour réinitialiser vos accès.')
+            }}
+            className="text-xs font-medium text-slate-500 hover:text-emerald-700 transition"
+          >
+            Mot de passe oublié ?
+          </a>
+        </div>
+
+        <div className="flex justify-center pt-3">
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            loading={loading}
+            className="h-11 px-12 rounded-full bg-[#10b981] hover:bg-[#059669] text-white text-xs sm:text-sm font-bold uppercase tracking-wider shadow-lg shadow-emerald-500/25 active:scale-95 transition-all"
+          >
+            {loading ? 'Connexion…' : 'SE CONNECTER'}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+export { Login }

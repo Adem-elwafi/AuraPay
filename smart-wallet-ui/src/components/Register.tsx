@@ -1,134 +1,235 @@
-import { ArrowRight, Loader2, Lock, Mail, Sparkles, User, UserPlus } from 'lucide-react'
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import api from '../api/axiosConfig'
+import { useState, type FormEvent, type ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { CheckCircle2, Eye, EyeOff, Lock, Mail, User, UserCheck, AlertCircle } from 'lucide-react'
+import api, { getApiErrorMessage } from '../api/axiosConfig'
+import Button from './ui/Button'
+import TextField from './ui/TextField'
 
-function Register() {
-    const navigate = useNavigate()
-    const [formData, setFormData] = useState({
-        username: '',
-        email: '',
-        password: '',
-    })
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,30}$/
 
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFormData({
-            ...formData,
-            [e.target.name]: e.target.value,
-        })
+export default function Register() {
+  const navigate = useNavigate()
+
+  const [form, setForm] = useState({
+    username: '',
+    fullName: '',
+    email: '',
+    password: '',
+    acceptTerms: true,
+  })
+
+  const [errors, setErrors] = useState<{
+    username?: string
+    fullName?: string
+    email?: string
+    password?: string
+    acceptTerms?: string
+  }>({})
+
+  const [showPassword, setShowPassword] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+
+  const update = (key: keyof typeof form) => (e: ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value
+    setForm((f) => ({ ...f, [key]: value }))
+    if (errors[key]) {
+      setErrors((er) => ({ ...er, [key]: undefined }))
+    }
+    if (serverError) setServerError(null)
+  }
+
+  const validate = () => {
+    const next: typeof errors = {}
+
+    const u = form.username.trim()
+    if (!u) {
+      next.username = "Nom d'utilisateur requis."
+    } else if (!USERNAME_RE.test(u)) {
+      next.username = '3 à 30 caractères (lettres, chiffres, tirets ou underscores).'
     }
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault()
-        setLoading(true)
-        setError(null)
-
-        try {
-            await api.post('/v1/auth/register', formData)
-            navigate('/login')
-        } catch (err: unknown) {
-            const apiError = err as { response?: { data?: { message?: string } } }
-            setError(apiError.response?.data?.message || "Une erreur est survenue lors de l'inscription.")
-        } finally {
-            setLoading(false)
-        }
+    const em = form.email.trim()
+    if (!em) {
+      next.email = 'Adresse e-mail requise.'
+    } else if (!EMAIL_RE.test(em)) {
+      next.email = 'Format d’e-mail invalide (ex. contact@exemple.com).'
     }
 
-    return (
-        <div className="rounded-[28px] border border-white/8 bg-black/30 p-8 shadow-2xl shadow-black/40 backdrop-blur-md lg:p-10">
-            <div className="mb-8">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-300/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-amber-200">
-                    <Sparkles className="h-3 w-3" />
-                    Create your elite account
-                </div>
-                <h2 className="text-2xl font-semibold text-white">Registration</h2>
-                <p className="mt-2 text-sm text-zinc-400">Join the ecosystem of premium financial tools.</p>
-            </div>
+    if (form.fullName && form.fullName.trim().length < 2) {
+      next.fullName = 'Le nom complet doit comporter au moins 2 caractères.'
+    }
 
-            {error ? (
-                <div className="mb-5 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
-                    {error}
-                </div>
-            ) : null}
+    if (!form.password) {
+      next.password = 'Mot de passe requis.'
+    } else if (form.password.length < 8) {
+      next.password = '8 caractères minimum.'
+    }
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-                <label className="block space-y-2 text-left">
-                    <span className="ml-1 text-xs font-medium uppercase tracking-widest text-zinc-400">Username</span>
-                    <div className="group relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                            <User className="h-5 w-5 text-zinc-500 transition-colors group-focus-within:text-amber-300/70" />
-                        </div>
-                        <input
-                            name="username"
-                            type="text"
-                            value={formData.username}
-                            required
-                            className="block w-full rounded-xl border border-white/8 bg-white/3 py-3 pl-11 pr-4 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-amber-300/50 focus:ring-1 focus:ring-amber-300/50"
-                            placeholder="adem_dev"
-                            onChange={handleChange}
-                        />
-                    </div>
-                </label>
+    if (!form.acceptTerms) {
+      next.acceptTerms = 'Veuillez accepter les conditions générales.'
+    }
 
-                <label className="block space-y-2 text-left">
-                    <span className="ml-1 text-xs font-medium uppercase tracking-widest text-zinc-400">Email</span>
-                    <div className="group relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                            <Mail className="h-5 w-5 text-zinc-500 transition-colors group-focus-within:text-amber-300/70" />
-                        </div>
-                        <input
-                            name="email"
-                            type="email"
-                            value={formData.email}
-                            required
-                            className="block w-full rounded-xl border border-white/8 bg-white/3 py-3 pl-11 pr-4 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-amber-300/50 focus:ring-1 focus:ring-amber-300/50"
-                            placeholder="nom@exemple.com"
-                            onChange={handleChange}
-                        />
-                    </div>
-                </label>
+    setErrors(next)
+    return Object.keys(next).length === 0
+  }
 
-                <label className="block space-y-2 text-left">
-                    <span className="ml-1 text-xs font-medium uppercase tracking-widest text-zinc-400">Password</span>
-                    <div className="group relative">
-                        <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
-                            <Lock className="h-5 w-5 text-zinc-500 transition-colors group-focus-within:text-amber-300/70" />
-                        </div>
-                        <input
-                            name="password"
-                            type="password"
-                            value={formData.password}
-                            required
-                            className="block w-full rounded-xl border border-white/8 bg-white/3 py-3 pl-11 pr-4 text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-amber-300/50 focus:ring-1 focus:ring-amber-300/50"
-                            placeholder="••••••••"
-                            onChange={handleChange}
-                        />
-                    </div>
-                </label>
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault()
+    setServerError(null)
+    setSuccessMessage(null)
 
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="group flex w-full items-center justify-center gap-2 rounded-xl bg-[linear-gradient(135deg,rgba(250,204,21,0.95),rgba(202,138,4,0.95))] px-4 py-4 font-semibold text-zinc-950 shadow-[0_18px_40px_-15px_rgba(202,138,4,0.45)] transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_22px_50px_-12px_rgba(202,138,4,0.55)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
-                >
-                    {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <UserPlus className="h-5 w-5" />}
-                    <span>{loading ? 'Traitement...' : 'Create Account'}</span>
-                    {!loading ? <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /> : null}
-                </button>
-            </form>
+    if (!validate()) return
 
-            <div className="mt-8 border-t border-white/5 pt-6 text-center text-sm text-zinc-500">
-                <p>
-                    Déjà un compte ?{' '}
-                    <Link to="/login" className="font-medium text-amber-200 transition-colors hover:text-amber-100">
-                        Se connecter
-                    </Link>
-                </p>
-            </div>
+    setLoading(true)
+
+    try {
+      await api.post('/v1/auth/register', {
+        username: form.username.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        ...(form.fullName.trim() ? { fullName: form.fullName.trim() } : {}),
+      })
+
+      setSuccessMessage('Compte créé avec succès ! Redirection vers la connexion…')
+
+      setTimeout(() => {
+        navigate('/login')
+      }, 1200)
+    } catch (err: unknown) {
+      console.error('Erreur inscription', err)
+      setServerError(
+        getApiErrorMessage(err, "Une erreur est survenue lors de l'inscription. Vérifiez les informations saisies.")
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="w-full">
+      {serverError && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-700"
+        >
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-rose-600" />
+          <span className="leading-relaxed">{serverError}</span>
         </div>
-    )
-}
+      )}
 
-export default Register
+      {successMessage && (
+        <div
+          role="status"
+          className="mb-4 flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-700"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+          <span className="font-medium">{successMessage}</span>
+        </div>
+      )}
+
+      <form noValidate onSubmit={handleSubmit} className="space-y-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <TextField
+            label="Nom d'utilisateur"
+            icon={User}
+            type="text"
+            autoComplete="username"
+            placeholder="adem_dev"
+            value={form.username}
+            onChange={update('username')}
+            error={errors.username}
+            containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+            inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+            autoFocus
+          />
+
+          <TextField
+            label="Nom complet"
+            icon={UserCheck}
+            type="text"
+            autoComplete="name"
+            placeholder="Adem Larbi"
+            value={form.fullName}
+            onChange={update('fullName')}
+            error={errors.fullName}
+            containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+            inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+          />
+        </div>
+
+        <TextField
+          label="Adresse e-mail"
+          icon={Mail}
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          placeholder="adem@exemple.com"
+          value={form.email}
+          onChange={update('email')}
+          error={errors.email}
+          containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+          inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+        />
+
+        <TextField
+          label="Mot de passe"
+          icon={Lock}
+          type={showPassword ? 'text' : 'password'}
+          autoComplete="new-password"
+          placeholder="••••••••"
+          value={form.password}
+          onChange={update('password')}
+          error={errors.password}
+          hint="8 caractères minimum."
+          containerClassName="bg-[#f4f7f6] border-slate-200/80 focus-within:bg-white focus-within:border-emerald-500 shadow-none"
+          inputClassName="text-slate-800 placeholder:text-slate-400 text-sm"
+          trailing={
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+              className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-200/60 hover:text-slate-700 cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          }
+        />
+
+        <div className="pt-0.5">
+          <label className="flex cursor-pointer select-none items-start gap-2 text-[11px] text-slate-600">
+            <input
+              type="checkbox"
+              checked={form.acceptTerms}
+              onChange={update('acceptTerms')}
+              className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 accent-emerald-600 cursor-pointer"
+            />
+            <span>
+              J'accepte les{' '}
+              <span className="text-emerald-700 font-medium">conditions générales</span> et la{' '}
+              <span className="text-emerald-700 font-medium">politique de confidentialité</span>.
+            </span>
+          </label>
+          {errors.acceptTerms && (
+            <p className="mt-1 text-[11px] text-rose-600">{errors.acceptTerms}</p>
+          )}
+        </div>
+
+        <div className="flex justify-center pt-2">
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            loading={loading}
+            className="h-11 px-12 rounded-full bg-[#10b981] hover:bg-[#059669] text-white text-xs sm:text-sm font-bold uppercase tracking-wider shadow-lg shadow-emerald-500/25 active:scale-95 transition-all"
+          >
+            {loading ? 'Création en cours…' : "S'INSCRIRE"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  )
+}
+export { Register }

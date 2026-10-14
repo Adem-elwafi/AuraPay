@@ -1,7 +1,6 @@
+// Le backend (AuthenticationResponse) ne renvoie que le JWT
 export interface AuthResponse {
     token: string;
-    username: string;
-    email?: string;
 }
 
 export interface Wallet {
@@ -12,15 +11,7 @@ export interface Wallet {
 
 export type WalletResponse = Wallet;
 
-export interface Transaction {
-    id: number;
-    amount: number;
-    timestamp: string;
-    type: 'DEBIT' | 'CREDIT';
-    description: string;
-    senderAccountNumber: string;
-    recipientAccountNumber: string;
-}
+export type TransactionType = 'DEBIT' | 'CREDIT';
 
 export interface TransferRequest {
     recipientAccountNumber: string;
@@ -38,18 +29,22 @@ export interface ExpenseRequest {
 
 export interface DepositRequest {
     amount: number;
+    description?: string;
 }
 
 export interface TransactionResponse {
     id: number;
     amount: number;
     timestamp: string;
-    type: string;
-    category?: string | null;
-    description: string;
-    senderAccountNumber: string;
+    type: TransactionType;
+    category: TransactionCategory | null;
+    description: string | null;
+    senderAccountNumber: string | null;
     recipientAccountNumber: string | null;
 }
+
+/** Transaction as displayed in the UI: server data, or a local offline entry not yet synchronised. */
+export type DisplayTransaction = TransactionResponse & { pendingSync?: boolean };
 
 export interface DashboardStatsResponse {
     totalRevenues: number;
@@ -69,12 +64,12 @@ export interface ApiError {
     message: string;
 }
 
+// Miroir de ProfileResponse : le backend n'expose pas l'id utilisateur
 export interface Profile {
-    id: number;
     username: string;
     email: string;
-    fullName?: string;
-    avatarUrl?: string;
+    fullName?: string | null;
+    avatarUrl?: string | null;
 }
 
 export interface UpdateProfileRequest {

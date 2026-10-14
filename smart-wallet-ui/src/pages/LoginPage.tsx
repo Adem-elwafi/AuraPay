@@ -1,20 +1,15 @@
-import AuthLayout from '../components/AuthLayout'
+import UnifiedAuthLayout from '../components/layout/UnifiedAuthLayout'
 import Login from '../components/Login'
 
-function LoginPage() {
+export default function LoginPage() {
   return (
-    <AuthLayout
-      badge="SmartWallet Secure Access"
-      title="Welcome back to your money dashboard"
-      description="Sign in to track balances, review activity and keep your wallet under control from one polished workspace."
-      highlights={[
-        'Fast access to balances, transfers and activity.',
-        'A clean mobile-first layout that stays readable on every screen.',
-      ]}
+    <UnifiedAuthLayout
+      title="Connexion"
+      subtitle="Accédez à votre console bancaire Vaultis et pilotez vos flux en temps réel."
+      type="login"
+      mascotGreeting="Ravi de vous revoir !"
     >
       <Login />
-    </AuthLayout>
+    </UnifiedAuthLayout>
   )
 }
-
-export default LoginPage
