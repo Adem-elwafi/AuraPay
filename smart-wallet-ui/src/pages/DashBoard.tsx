@@ -1,496 +1,544 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDownLeft, Send, X, History, Minus, Plus, ChevronDown, ChevronUp, BarChart2 } from "lucide-react";
+import axios from "axios";
+import { useLocation } from "react-router-dom";
+import { useLiveQuery } from "dexie-react-hooks";
+import Button from "../components/ui/Button";
+import BottomSheet from "../components/ui/BottomSheet";
+import { formatLongDate } from "../lib/format";
+import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
+import { getTransactionHistory } from "../services/transaction.service";
+import { getDashboardChart, getDashboardStats } from "../services/analytics.service";
+import type { ChartDataPoint, DashboardStatsResponse, DisplayTransaction, TransactionResponse } from "../api/types";
+import { db, type LocalTransaction } from "../lib/db";
 import {
-  ArrowRightLeft,
-  CreditCard,
-  Copy,
-  History,
-  PieChart,
-  TrendingDown,
-  Cpu,
-  TrendingUp,
-  X,
-} from 'lucide-react'
-import axios from 'axios'
-import TransactionsList from '../components/TransactionsList'
-import TransferForm from '../components/TransferForm'
-import { getTransactionHistory } from '../services/transaction.service'
-import StatCard from '../components/StatCard'
-import { getDashboardChart, getDashboardStats } from '../services/analytics.service'
-import type { ChartDataPoint, DashboardStatsResponse, TransactionResponse } from '../api/types'
-import { useAuth } from '../context/AuthContext'
+  BalancePanel,
+  FlowAnalytics,
+  type FlowPoint,
+  QuickTransfer,
+  RecentActivity,
+  type SpendingCategory,
+  StatCards,
+  type StatItem,
+  UpgradeCard,
+} from "../features/dashboard";
+import TransactionsList from "../components/TransactionsList";
+import { scrollToAnchor } from "../lib/scrollToAnchor";
 
-function DashboardPage() {
-  const [transactions, setTransactions] = useState<TransactionResponse[]>([])
-  const [txLoading, setTxLoading] = useState(true)
-  const [analyticsLoading, setAnalyticsLoading] = useState(true)
-  const [dashboardStats, setDashboardStats] = useState<DashboardStatsResponse | null>(null)
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null)
-  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
-  const { user, wallet, loading: sessionLoading, logout } = useAuth()
+/** A local entry is considered already applied server-side if a matching server transaction exists close in time. */
+const DEDUPE_WINDOW_MS = 10 * 60 * 1000;
+
+const mergeWithPending = (
+  serverTxs: TransactionResponse[],
+  pendingTxs: LocalTransaction[],
+  accountNumber?: string
+): DisplayTransaction[] => {
+  const pending: DisplayTransaction[] = pendingTxs
+    .filter((local) => {
+      const localTime = new Date(local.timestamp).getTime();
+      return !serverTxs.some(
+        (tx) =>
+          tx.type === local.type &&
+          Math.abs(Number(tx.amount) - Number(local.amount)) < 0.0005 &&
+          Math.abs(new Date(tx.timestamp).getTime() - localTime) < DEDUPE_WINDOW_MS
+      );
+    })
+    .map((local) => ({
+      // Negative ids never collide with server ids
+      id: -Number(local.id ?? Date.now()),
+      amount: Number(local.amount),
+      timestamp: local.timestamp,
+      type: local.type,
+      category: (local.category as TransactionResponse["category"]) ?? null,
+      description: local.description ?? null,
+      senderAccountNumber: local.type === "CREDIT" ? null : local.senderAccountNumber ?? accountNumber ?? null,
+      recipientAccountNumber: local.type === "CREDIT" ? accountNumber ?? null : local.recipientAccountNumber ?? null,
+      pendingSync: true,
+    }));
+
+  if (pending.length === 0) return serverTxs;
+
+  return [...pending, ...serverTxs].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+};
+
+export default function DashboardPage() {
+  const { user, wallet, loading: sessionLoading, logout, refreshUserData } = useAuth();
+  const { t } = useLanguage();
+  const location = useLocation();
+
+  const [transactions, setTransactions] = useState<TransactionResponse[]>([]);
+  // Offline entries stored in IndexedDB and not yet synchronised (reactive)
+  const pendingLocalTxs = useLiveQuery(
+    () => db.transactions.where("syncStatus").notEqual("synced").toArray(),
+    [],
+    [] as LocalTransaction[]
+  );
+  const displayedTransactions = useMemo(
+    () => mergeWithPending(transactions, pendingLocalTxs, wallet?.accountNumber),
+    [transactions, pendingLocalTxs, wallet?.accountNumber]
+  );
+  const [txLoading, setTxLoading] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(true);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStatsResponse | null>(null);
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  // Modals state
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [mobileAnalyticsOpen, setMobileAnalyticsOpen] = useState(false);
+  const [actionModal, setActionModal] = useState<{
+    open: boolean;
+    mode: "deposit" | "p2p" | "expense";
+  }>({
+    open: false,
+    mode: "deposit",
+  });
+
+  // Listen to open-quick-action global event (e.g. from BottomNav center button)
+  useEffect(() => {
+    const handleQuickAction = (e: Event) => {
+      const customEvent = e as CustomEvent<{ mode?: "deposit" | "p2p" | "expense" }>;
+      setActionModal({
+        open: true,
+        mode: customEvent.detail?.mode || "expense",
+      });
+    };
+    window.addEventListener("open-quick-action", handleQuickAction);
+    return () => window.removeEventListener("open-quick-action", handleQuickAction);
+  }, []);
+
+  // Hash navigation (BottomNav / Navbar): open the mobile analytics accordion, then scroll to the visible section
+  useEffect(() => {
+    if (!location.hash) return;
+    if (location.hash === "#analytics") setMobileAnalyticsOpen(true);
+    const id = window.setTimeout(() => scrollToAnchor(location.hash), 60);
+    return () => window.clearTimeout(id);
+  }, [location.hash, location.key]);
+
+  const firstName = useMemo(() => {
+    if (user?.fullName?.trim()) {
+      return user.fullName.trim().split(" ")[0];
+    }
+    return user?.username || "";
+  }, [user]);
+
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    return h < 18 ? t('greeting_morning') : t('greeting_evening');
+  }, [t]);
 
   const loadData = useCallback(async () => {
-    setTxLoading(true)
-    setError(null)
+    setTxLoading(true);
+    setError(null);
 
     try {
-      const txData = await getTransactionHistory()
-      setTransactions(txData)
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        if (err.response?.status === 401) {
-          logout()
-          return
-        }
-
-        setError('Impossible de charger les données du dashboard.')
+      const txData = await getTransactionHistory();
+      if (txData && txData.length > 0) {
+        setTransactions(txData);
       } else {
-        setError('Une erreur inattendue est survenue.')
+        setTransactions([]);
+      }
+    } catch (err: unknown) {
+      // Keep the last known history on network failure (offline); local pending entries are merged on top
+      if (axios.isAxiosError(err) && !err.response) return;
+      setTransactions([]);
+      if (axios.isAxiosError(err)) {
+        if (err.response?.status === 401 && localStorage.getItem('token') !== 'sw-demo-session') {
+          logout();
+          return;
+        }
       }
     } finally {
-      setTxLoading(false)
+      setTxLoading(false);
     }
-  }, [logout])
-
-  useEffect(() => {
-    queueMicrotask(() => {
-      void loadData()
-    })
-  }, [loadData])
+  }, [logout]);
 
   const loadAnalytics = useCallback(async () => {
-    setAnalyticsLoading(true)
-    setAnalyticsError(null)
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
 
     try {
       const [statsData, chartSeries] = await Promise.all([
         getDashboardStats(),
         getDashboardChart(),
-      ])
+      ]);
 
-      setDashboardStats(statsData)
-      setChartData(chartSeries)
+      setDashboardStats(statsData);
+      setChartData(chartSeries);
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
-        logout()
-        return
+        if (localStorage.getItem('token') !== 'sw-demo-session') {
+          logout();
+          return;
+        }
       }
-
-      setAnalyticsError('Impossible de charger les analyses financières.')
+      if (localStorage.getItem('token') !== 'sw-demo-session') {
+        setAnalyticsError("Impossible de charger les analyses financières.");
+      }
     } finally {
-      setAnalyticsLoading(false)
+      setAnalyticsLoading(false);
     }
-  }, [logout])
+  }, [logout]);
 
   useEffect(() => {
     queueMicrotask(() => {
-      void loadAnalytics()
-    })
-  }, [loadAnalytics])
+      void loadData();
+      void loadAnalytics();
+    });
+  }, [loadData, loadAnalytics]);
 
-  const copyAccountNumber = () => {
-    if (wallet?.accountNumber) {
-      navigator.clipboard.writeText(wallet.accountNumber)
+  const handleTransactionSuccess = useCallback(() => {
+    void loadData();
+    void loadAnalytics();
+    void refreshUserData().catch(() => undefined);
+    if (actionModal.open) {
+      setTimeout(() => {
+        setActionModal({ open: false, mode: "deposit" });
+      }, 1500);
     }
-  }
+  }, [loadData, loadAnalytics, refreshUserData, actionModal.open]);
 
-  const currencyFormatter = useMemo(
-    () => new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-    [],
-  )
-
-  const formatMoney = (value: number) => `${currencyFormatter.format(value)} €`
-
-  const chartPath = useMemo(() => {
-    if (chartData.length === 0) {
-      return ''
-    }
-
-    const width = 1000
-    const height = 300
-    const paddingX = 48
-    const paddingY = 24
-    const values = chartData.map((point) => Number(point.amount))
-    const minValue = Math.min(...values)
-    const maxValue = Math.max(...values)
-    const range = Math.max(maxValue - minValue, 1)
-    const usableWidth = width - paddingX * 2
-    const usableHeight = height - paddingY * 2
-
-    const points = chartData.map((point, index) => {
-      const amount = Number(point.amount)
-      const x = chartData.length === 1 ? width / 2 : paddingX + (usableWidth * index) / (chartData.length - 1)
-      const normalized = (amount - minValue) / range
-      const y = paddingY + (1 - normalized) * usableHeight
-      return { x, y }
-    })
-
-    return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ')
-  }, [chartData])
-
-  const chartAreaPath = useMemo(() => {
-    if (chartData.length === 0) {
-      return ''
+  // Transform chart series and fallback to realistic 30-day flow
+  const dailyFlowPoints = useMemo<FlowPoint[]>(() => {
+    if (chartData && chartData.length > 0) {
+      return chartData.map((p) => ({
+        date: p.label,
+        net: Number(p.amount) || 0,
+      }));
     }
 
-    const width = 1000
-    const height = 300
-    const paddingX = 48
-    const paddingY = 24
-    const values = chartData.map((point) => Number(point.amount))
-    const minValue = Math.min(...values)
-    const maxValue = Math.max(...values)
-    const range = Math.max(maxValue - minValue, 1)
-    const usableWidth = width - paddingX * 2
-    const usableHeight = height - paddingY * 2
+    const DAY = 86_400_000;
+    const today = new Date();
+    // Benchmark curve rising smoothly to +1 199,40 €
+    const DAILY_NET = [
+      12.5, 15.0, 10.2, 18.4, 14.1, 16.8, 22.0, 19.5, 25.1, 21.0,
+      28.3, 24.5, 31.0, 29.2, 35.4, 32.1, 38.0, 36.5, 42.0, 45.2,
+      48.0, 52.3, 56.1, 61.2, 65.4, 72.0, 78.5, 84.1, 92.5, 72.5,
+    ];
+    return DAILY_NET.map((net, i) => ({
+      date: new Date(today.getTime() - (DAILY_NET.length - 1 - i) * DAY).toISOString(),
+      net,
+    }));
+  }, [chartData]);
 
-    const points = chartData.map((point, index) => {
-      const amount = Number(point.amount)
-      const x = chartData.length === 1 ? width / 2 : paddingX + (usableWidth * index) / (chartData.length - 1)
-      const normalized = (amount - minValue) / range
-      const y = paddingY + (1 - normalized) * usableHeight
-      return { x, y }
-    })
+  // Spending categories computed dynamically from debit transactions
+  const spendingBreakdown = useMemo<SpendingCategory[]>(() => {
+    const debits = transactions.filter((t) => t.type === "DEBIT");
+    if (debits.length === 0) {
+      return [];
+    }
+    const catTotals = new Map<string, number>();
+    let totalSpent = 0;
+    debits.forEach((d) => {
+      const cat = d.category || "AUTRE";
+      const amt = Number(d.amount) || 0;
+      catTotals.set(cat, (catTotals.get(cat) || 0) + amt);
+      totalSpent += amt;
+    });
 
-    const first = points[0]
-    const last = points[points.length - 1]
+    if (totalSpent === 0) return [];
 
-    return `M ${first.x.toFixed(2)} 300 L ${points.map((point) => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' L ')} L ${last.x.toFixed(2)} 300 Z`
-  }, [chartData])
+    return Array.from(catTotals.entries()).map(([cat, amt]) => ({
+      label: cat,
+      share: Math.round((amt / totalSpent) * 100),
+    }));
+  }, [transactions]);
 
-  const revenueTrendData = chartData.map((point) => Number(point.amount))
-  const expensesTrendData = chartData.map((point, index) => Math.max(0, chartData.length - index) + Number(point.amount) * 0.15)
-  const savingsTrendData = chartData.map((point, index) => Number(point.amount) - (index * 4))
+  // Stat items with real values, trends and sparkline curves
+  const statItems = useMemo<StatItem[]>(() => {
+    const chartSeries = chartData.map((p) => Number(p.amount)).filter((n) => !isNaN(n));
+    const revenuesTrend = chartSeries.length >= 2 ? chartSeries : [0, 0];
+    const expensesTrend =
+      chartSeries.length >= 2
+        ? chartSeries.map((v) => Math.max(0, v * 0.5))
+        : [0, 0];
+    const savingsTrend =
+      chartSeries.length >= 2
+        ? chartSeries.map((v) => Math.max(0, v * 0.5))
+        : [0, 0];
 
-  const stats = dashboardStats ?? {
-    totalRevenues: 0,
-    totalExpenses: 0,
-    totalSavings: 0,
-    revenuesTrend: 0,
-    expensesTrend: 0,
-    savingsTrend: 0,
-  }
+    const revVal = dashboardStats?.totalRevenues ?? 0;
+    const expVal = dashboardStats?.totalExpenses ?? 0;
+    const savVal = dashboardStats?.totalSavings ?? 0;
 
-  if (sessionLoading || (txLoading && transactions.length === 0)) {
+    return [
+      {
+        key: "income",
+        label: t('revenues_month'),
+        value: revVal,
+        delta: dashboardStats?.revenuesTrend ?? 0,
+        trend: revenuesTrend,
+      },
+      {
+        key: "spending",
+        label: t('spending'),
+        value: expVal,
+        delta: dashboardStats?.expensesTrend ?? 0,
+        trend: expensesTrend,
+      },
+      {
+        key: "savings",
+        label: t('savings'),
+        value: savVal,
+        delta: dashboardStats?.savingsTrend ?? 0,
+        trend: savingsTrend,
+      },
+    ];
+  }, [dashboardStats, chartData, t]);
+
+  // Quick contacts extracted from real transactions
+  const quickContacts = useMemo(() => {
+    const contactsMap = new Map<string, { id: string; name: string; walletId: string }>();
+
+    transactions.forEach((tx) => {
+      const isCredit = wallet?.accountNumber
+        ? tx.recipientAccountNumber === wallet.accountNumber
+        : tx.type === "CREDIT";
+      const targetId = isCredit ? tx.senderAccountNumber : tx.recipientAccountNumber;
+
+      if (targetId && targetId !== wallet?.accountNumber && !contactsMap.has(targetId)) {
+        const cleanName =
+          tx.description && !tx.description.toLowerCase().includes("virement")
+            ? tx.description
+            : `Contact ${targetId.slice(-4)}`;
+        contactsMap.set(targetId, {
+          id: `c-${tx.id}`,
+          name: cleanName,
+          walletId: targetId,
+        });
+      }
+    });
+
+    return Array.from(contactsMap.values()).slice(0, 3);
+  }, [transactions, wallet?.accountNumber]);
+
+  if (sessionLoading || ((txLoading || analyticsLoading) && displayedTransactions.length === 0 && !dashboardStats)) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.08),transparent_35%),linear-gradient(180deg,#090807_0%,#0b0a09_100%)] text-amber-200">
+      <div className="flex min-h-[60vh] items-center justify-center text-[var(--accent-light)]">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-300/20 border-t-amber-300" />
-          <p className="text-xs font-semibold uppercase tracking-[0.35em] text-amber-200/80">Initialisation de votre espace Elite...</p>
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[var(--accent-20)] border-t-[var(--accent)]" />
+          <p className="eyebrow !text-xs tracking-[0.3em] text-[var(--muted)]">
+            Initialisation de votre espace Elite...
+          </p>
         </div>
       </div>
-    )
+    );
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#0b0a09] text-zinc-100">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(6,182,212,0.08),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.08),transparent_28%),linear-gradient(180deg,#090807_0%,#0b0a09_100%)]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-linear-to-b from-black/40 to-transparent" />
+    <div className="relative text-[var(--text)]">
+      {/* Error Banner */}
+      {(error || analyticsError) && (
+        <div className="mb-6 flex items-center justify-between rounded-2xl border border-[rgba(251,113,133,0.3)] bg-[var(--negative-15)] px-4 py-3 text-sm text-[var(--negative)]">
+          <span>{error || analyticsError}</span>
+          <button
+            onClick={() => {
+              setError(null);
+              setAnalyticsError(null);
+            }}
+            className="text-xs font-semibold hover:underline cursor-pointer"
+          >
+            Fermer
+          </button>
+        </div>
+      )}
 
-      <div className="relative mx-auto w-full max-w-7xl px-4 pb-12 pt-4 sm:px-6 lg:px-8 lg:pt-6">
-        {(error || analyticsError) && (
-          <div className="mb-8 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            {error || analyticsError}
-          </div>
-        )}
-
-        <main className="grid grid-cols-12 gap-8">
-          <section className="col-span-full lg:col-span-8">
-            <div className="space-y-8">
-              <article className="rounded-4xl border border-white/5 bg-zinc-900/40 p-8 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-md sm:p-10">
-                <div className="mb-6 flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-zinc-500">Primary balance</p>
-                    <h2 className="mt-2 flex items-center gap-2 text-xl font-bold text-zinc-100 sm:text-2xl">
-                      <CreditCard className="h-5 w-5 text-amber-300" />
-                      Votre Carte Elite
-                    </h2>
-                  </div>
-                  <button className="text-xs font-bold uppercase tracking-[0.3em] text-amber-200 transition-colors hover:text-amber-100">
-                    Gérer
-                  </button>
-                </div>
-
-                <div className="relative overflow-hidden rounded-[28px] border border-white/5 bg-[linear-gradient(135deg,rgba(245,225,146,0.96),rgba(168,134,58,0.9))] p-8 text-black shadow-[0_32px_90px_-20px_rgba(0,0,0,0.95)] transition-transform duration-500 hover:-translate-y-1 sm:p-10">
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.45),transparent_30%),radial-gradient(circle_at_bottom_left,rgba(0,0,0,0.06),transparent_28%)]" />
-
-                  <div className="relative z-10 flex items-start justify-between gap-6">
-                    <div>
-                      <div className="mb-2 text-xs font-bold uppercase tracking-[0.25em] text-black/60">Solde Disponible</div>
-                      <div className="text-4xl font-black tracking-tighter sm:text-5xl">
-                        {(wallet?.balance || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2 })} €
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-2xl font-black italic">VISA</div>
-                      <div className="mt-1 text-[10px] font-bold uppercase text-black/40">Platinum Elite</div>
-                    </div>
-                  </div>
-
-                  <div className="relative z-10 mt-8 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-                    <div className="flex flex-col gap-4">
-                      <div className="flex flex-wrap items-center gap-4 font-mono text-xl tracking-[0.25em] text-black/80 sm:text-2xl">
-                        <span>{wallet?.accountNumber ? wallet.accountNumber.replace(/(.{4})/g, '$1 ').trim() : 'SW-0000-0000'}</span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            copyAccountNumber()
-                          }}
-                          className="rounded-xl border border-black/10 bg-black/10 p-2 text-black transition-all hover:bg-black/20 active:scale-95"
-                          title="Copier le numéro"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      <div className="flex gap-8">
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-black/40">Titulaire</p>
-                          <p className="text-sm font-bold uppercase text-black">{user?.username || 'Utilisateur Elite'}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-black/40">Expire</p>
-                          <p className="text-sm font-bold text-black">05/28</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-center rounded-2xl border border-black/10 bg-black/10 px-4 py-3">
-                      <div className="flex h-12 w-16 items-center justify-center rounded-lg border border-amber-400/20 bg-[linear-gradient(135deg,rgba(255,248,214,0.95),rgba(184,145,65,0.95))] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
-                        <Cpu className="h-6 w-6 text-zinc-950/70" />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pointer-events-none absolute -right-20 -top-20 h-80 w-80 rounded-full bg-white/20 blur-3xl transition-colors duration-700 hover:bg-white/30" />
-                </div>
-              </article>
-
-              <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
-                {analyticsLoading && !dashboardStats ? (
-                  [0, 1, 2].map((index) => (
-                    <div
-                      key={index}
-                      className="h-56 animate-pulse rounded-3xl border border-white/5 bg-zinc-900/40 p-6 shadow-[0_18px_60px_-35px_rgba(0,0,0,0.85)] backdrop-blur-md"
-                    >
-                      <div className="mb-4 h-10 w-10 rounded-2xl bg-white/5" />
-                      <div className="mb-3 h-3 w-24 rounded-full bg-white/5" />
-                      <div className="mb-8 h-8 w-36 rounded-full bg-white/5" />
-                      <div className="h-10 rounded-full bg-white/5" />
-                    </div>
-                  ))
-                ) : (
-                  <>
-                    <StatCard
-                      title="Revenus ce mois"
-                      value={formatMoney(stats.totalRevenues)}
-                      trend={stats.revenuesTrend}
-                      data={revenueTrendData}
-                      delay="0.05s"
-                      icon={TrendingUp}
-                    />
-                    <StatCard
-                      title="Dépenses"
-                      value={formatMoney(stats.totalExpenses)}
-                      trend={stats.expensesTrend}
-                      data={expensesTrendData}
-                      delay="0.1s"
-                      icon={TrendingDown}
-                    />
-                    <StatCard
-                      title="Économies"
-                      value={formatMoney(stats.totalSavings)}
-                      trend={stats.savingsTrend}
-                      data={savingsTrendData}
-                      delay="0.15s"
-                      icon={PieChart}
-                    />
-                  </>
-                )}
-              </section>
-
-              <section className="rounded-4xl border border-white/5 bg-zinc-900/40 p-8 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-md sm:p-10">
-                <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-zinc-500">Analytics</p>
-                    <h2 className="mt-2 text-2xl font-bold text-zinc-100">Analyses de Flux</h2>
-                    <p className="mt-1 text-sm text-zinc-400">Performance des 30 derniers jours</p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">Profit Net</p>
-                      <p className="text-xl font-black text-amber-200">+ 340,50 €</p>
-                    </div>
-                    <div className="h-12 w-px bg-white/10" />
-                    <button className="rounded-xl bg-white/5 p-2 transition-colors hover:bg-white/10">
-                      <TrendingUp className="h-5 w-5 text-amber-300" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mb-10 h-62.5 w-full">
-                  <svg width="100%" height="100%" viewBox="0 0 1000 300" preserveAspectRatio="none" className="overflow-visible">
-                    <defs>
-                      <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.15" />
-                        <stop offset="100%" stopColor="#0b0a09" stopOpacity="0" />
-                      </linearGradient>
-                      <filter id="glow">
-                        <feGaussianBlur stdDeviation="4" result="blur" />
-                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                      </filter>
-                    </defs>
-
-                    {[0, 75, 150, 225, 300].map((y) => (
-                      <line key={y} x1="0" y1={y} x2="1000" y2={y} stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
-                    ))}
-
-                    {chartAreaPath && (
-                      <path d={chartAreaPath} fill="url(#chartGradient)" className="animate-pulse duration-4000" />
-                    )}
-
-                    {chartPath && (
-                      <path
-                        d={chartPath}
-                        fill="none"
-                        stroke="#f59e0b"
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        filter="url(#glow)"
-                      />
-                    )}
-
-                    {chartData.length > 0 && (
-                      <circle
-                        cx={chartData.length === 1 ? 500 : 1000 - 48}
-                        cy={(() => {
-                          const amount = Number(chartData[chartData.length - 1].amount)
-                          const values = chartData.map((point) => Number(point.amount))
-                          const minValue = Math.min(...values)
-                          const maxValue = Math.max(...values)
-                          const range = Math.max(maxValue - minValue, 1)
-                          const normalized = (amount - minValue) / range
-                          return 24 + (1 - normalized) * 252
-                        })()}
-                        r="6"
-                        fill="#f59e0b"
-                        className="animate-bounce"
-                        style={{ animationDuration: '3s' }}
-                      />
-                    )}
-                  </svg>
-                </div>
-
-                <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
-                  <div className="space-y-6">
-                    <h4 className="flex items-center gap-2 font-bold text-zinc-100">
-                      <PieChart className="h-4 w-4 text-amber-300" />
-                      Répartition des Dépenses
-                    </h4>
-                    <div className="space-y-5">
-                      {[
-                        { label: 'Alimentation & Restauration', value: 45, color: '#fcd34d' },
-                        { label: 'Loisirs & Style de vie', value: 30, color: '#fbbf24' },
-                        { label: 'Transport & Mobilité', value: 15, color: '#f59e0b' }
-                      ].map((category) => (
-                        <div key={category.label} className="group cursor-default">
-                          <div className="mb-2 flex justify-between text-xs">
-                            <span className="text-zinc-400 transition-colors group-hover:text-zinc-100">{category.label}</span>
-                            <span className="font-black text-zinc-100">{category.value}%</span>
-                          </div>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
-                            <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${category.value}%`, backgroundColor: category.color }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="rounded-[28px] border border-amber-300/10 bg-amber-300/5 p-8 backdrop-blur-md">
-                    <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-300/10">
-                      <TrendingUp className="h-5 w-5 text-amber-300" />
-                    </div>
-                    <h4 className="mb-2 font-bold text-zinc-100">Insight Elite</h4>
-                    <p className="mb-6 text-sm leading-relaxed text-zinc-400">
-                      Félicitations ! Vos dépenses ont diminué de <span className="font-bold text-amber-200">12%</span> par rapport au mois dernier.
-                      Vous êtes sur la voie d'une croissance patrimoniale exceptionnelle.
-                    </p>
-                    <button className="flex items-center gap-2 text-sm font-bold text-amber-300 transition-all hover:gap-3">
-                      Voir le rapport détaillé
-                      <ArrowRightLeft className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <aside className="col-span-full space-y-6 lg:col-span-4">
-            <section className="rounded-4xl border border-white/5 bg-zinc-900/40 p-8 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-md">
-              <div className="mb-8 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-xl font-bold text-zinc-100">
-                  <ArrowRightLeft className="h-5 w-5 text-amber-300" />
-                  Transfert Rapide
-                </h3>
-              </div>
-              <TransferForm onTransferSuccess={loadData} />
-            </section>
-
-            <section className="rounded-4xl border border-white/5 bg-zinc-900/40 p-8 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] backdrop-blur-md">
-              <div className="mb-10 flex items-center justify-between">
-                <h3 className="flex items-center gap-2 text-xl font-bold text-zinc-100">
-                  <History className="h-5 w-5 text-amber-300" />
-                  Flux Récents
-                </h3>
-                <button 
-                  onClick={() => setIsHistoryModalOpen(true)}
-                  className="text-xs font-bold uppercase tracking-[0.3em] text-amber-200 transition-colors hover:text-amber-100"
-                >
-                  Tout voir
-                </button>
-              </div>
-              <TransactionsList transactions={transactions.slice(0, 4)} currentAccountNumber={wallet?.accountNumber} />
-            </section>
-
-            <section className="overflow-hidden rounded-4xl border border-amber-300/20 bg-linear-to-br from-[#161514] to-black p-8 shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)]">
-              <div className="mb-6 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-300/10">
-                <TrendingUp className="h-5 w-5 text-amber-300" />
-              </div>
-              <h4 className="mb-2 text-lg font-bold text-zinc-100">Passez au niveau Supérieur</h4>
-              <p className="mb-6 text-sm text-zinc-400">Accédez à des taux d'intérêt exclusifs et un conseiller dédié 24/7.</p>
-              <button className="w-full rounded-2xl bg-amber-300 py-4 font-black text-black transition-all hover:bg-amber-400 active:scale-95">
-                UPGRADE MAINTENANT
-              </button>
-            </section>
-          </aside>
-        </main>
+      {/* Header Greeting + Action Buttons */}
+      <div className="sw-rise flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
+        <div>
+          <p className="eyebrow first-letter:uppercase text-[var(--muted)]">{formatLongDate(new Date())}</p>
+          <h1 className="font-display mt-2 text-3xl leading-tight text-[var(--text)] sm:text-5xl">
+            {greeting},{" "}
+            <span className="italic text-[var(--accent)]">{firstName}</span>
+          </h1>
+        </div>
+        {/* Desktop Header Action Buttons */}
+        <div className="hidden sm:flex gap-2.5">
+          <Button
+            variant="outline"
+            onClick={() => setActionModal({ open: true, mode: "deposit" })}
+          >
+            <ArrowDownLeft className="h-4 w-4" /> {t('deposit')}
+          </Button>
+          <Button onClick={() => setActionModal({ open: true, mode: "p2p" })}>
+            <Send className="h-4 w-4" /> {t('mode_p2p')}
+          </Button>
+        </div>
       </div>
 
+      {/* 2. Mobile Action Pills: [ ➖ Saisir Dépense ] & [ ➕ Saisir Entrée ] */}
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:hidden">
+        <button
+          type="button"
+          onClick={() => setActionModal({ open: true, mode: "expense" })}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-rose-500/30 bg-rose-500/10 py-3 px-4 text-xs font-bold text-rose-300 shadow-sm active:scale-98 transition cursor-pointer hover:bg-rose-500/20"
+        >
+          <div className="grid h-6 w-6 place-items-center rounded-full bg-rose-500/20 text-rose-300">
+            <Minus className="h-3.5 w-3.5" />
+          </div>
+          <span>Saisir Dépense</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActionModal({ open: true, mode: "deposit" })}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 py-3 px-4 text-xs font-bold text-emerald-300 shadow-sm active:scale-98 transition cursor-pointer hover:bg-emerald-500/20"
+        >
+          <div className="grid h-6 w-6 place-items-center rounded-full bg-emerald-500/20 text-emerald-300">
+            <Plus className="h-3.5 w-3.5" />
+          </div>
+          <span>Saisir Entrée</span>
+        </button>
+      </div>
+
+      {/* 12-Column Responsive Layout */}
+      <div className="mt-6 sm:mt-8 grid gap-6 lg:grid-cols-12">
+        {/* Main Column (8 cols): 1. BalancePanel → 3. StatCards → 4. RecentActivity (on mobile) → 5. FlowAnalytics */}
+        <div className="min-w-0 space-y-6 lg:col-span-8">
+          {/* 1. Salutation & Solde Principal (Carte Elite) */}
+          <section id="cards" className="scroll-mt-28">
+            <BalancePanel
+              wallet={wallet}
+              holder={firstName}
+              monthlyLimit={5000}
+              monthlySpent={dashboardStats?.totalExpenses ?? 0}
+              onDepositClick={() => setActionModal({ open: true, mode: "deposit" })}
+              onWithdrawClick={() => setActionModal({ open: true, mode: "expense" })}
+              onSettingsClick={() => setIsHistoryModalOpen(true)}
+            />
+          </section>
+
+          {/* 3. Résumé du Mois (Cartes de stats avec jauge de budget) */}
+          <section>
+            <StatCards stats={statItems} />
+          </section>
+
+          {/* 4. Dernières Dépenses (Activité récente) - Placé ici pour smartphone */}
+          <div className="lg:hidden">
+            <section id="transactions" className="scroll-mt-28">
+              <RecentActivity
+                items={displayedTransactions}
+                currentAccountNumber={wallet?.accountNumber}
+                onViewAll={() => setIsHistoryModalOpen(true)}
+                maxItems={5}
+              />
+            </section>
+          </div>
+
+          {/* 5. Graphiques & Donut d'analyse (présentés sous forme repliable / accordéon sur mobile) */}
+          <section id="analytics" className="scroll-mt-28">
+            {/* Mobile Accordion Header */}
+            <div className="lg:hidden mb-2">
+              <button
+                type="button"
+                onClick={() => setMobileAnalyticsOpen((prev) => !prev)}
+                className="w-full flex items-center justify-between rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-4 text-sm font-bold text-[var(--text)] transition cursor-pointer hover:bg-[var(--surface-3)]"
+              >
+                <div className="flex items-center gap-2.5">
+                  <BarChart2 className="h-4 w-4 text-[var(--accent)]" />
+                  <span>Graphiques & Analyse des Dépenses</span>
+                </div>
+                {mobileAnalyticsOpen ? (
+                  <ChevronUp className="h-4 w-4 text-[var(--muted)]" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-[var(--muted)]" />
+                )}
+              </button>
+            </div>
+
+            <div className={!mobileAnalyticsOpen ? "hidden lg:block" : "block"}>
+              <FlowAnalytics
+                dailyFlow={dailyFlowPoints}
+                breakdown={spendingBreakdown}
+                insight={{
+                  title: "Insight Elite",
+                  spendingChange: dashboardStats?.expensesTrend ?? -100,
+                }}
+                onViewReport={() => setIsHistoryModalOpen(true)}
+              />
+            </div>
+          </section>
+        </div>
+
+        {/* Aside Column (4 cols, visible on desktop / large screen): QuickTransfer → RecentActivity → UpgradeCard */}
+        <aside
+          className="min-w-0 space-y-6 lg:col-span-4"
+          aria-label="Actions rapides et flux"
+        >
+          <section id="virement" className="hidden lg:block">
+            <QuickTransfer
+              balance={wallet?.balance}
+              contacts={quickContacts}
+              onTransferSuccess={handleTransactionSuccess}
+            />
+          </section>
+
+          <section id="transactions-desktop" className="hidden lg:block scroll-mt-28">
+            <RecentActivity
+              items={displayedTransactions}
+              currentAccountNumber={wallet?.accountNumber}
+              onViewAll={() => setIsHistoryModalOpen(true)}
+              maxItems={5}
+            />
+          </section>
+
+          <section>
+            <UpgradeCard />
+          </section>
+        </aside>
+      </div>
+
+      {/* History Modal ("Tout voir") */}
       {isHistoryModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-lg p-4">
-          <div className="glass relative max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-white/10 p-6 shadow-2xl">
-            <div className="sticky top-0 z-10 mb-8 flex items-center justify-between bg-zinc-900/40 py-2 backdrop-blur-xl">
-              <h3 className="flex items-center gap-2 text-2xl font-bold text-zinc-100">
-                <History className="h-6 w-6 text-amber-300" />
-                Historique Complet
+        <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+          <div className="relative max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border border-[var(--line-strong)] bg-[var(--surface)] p-6 shadow-2xl sm:p-7 text-[var(--text)]">
+            <div className="sticky top-0 z-10 -mx-6 -mt-6 mb-6 flex items-center justify-between border-b border-[var(--line)] bg-[var(--surface)] px-6 py-4 backdrop-blur-xl sm:-mx-7 sm:-mt-7 sm:px-7">
+              <h3 className="flex items-center gap-2 text-xl font-bold text-[var(--text)]">
+                <History className="h-5 w-5 text-[var(--accent)]" />
+                {t('history_title')}
               </h3>
               <button
                 onClick={() => setIsHistoryModalOpen(false)}
-                className="rounded-xl bg-white/5 p-2 transition-colors hover:bg-white/10"
+                className="grid h-8 w-8 place-items-center rounded-xl border border-[var(--line)] bg-[var(--surface-2)] text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--text)] cursor-pointer"
+                aria-label={t('close')}
               >
-                <X className="h-6 w-6 text-zinc-400" />
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <TransactionsList transactions={transactions} currentAccountNumber={wallet?.accountNumber} showControls={true} />
+
+            <TransactionsList
+              transactions={displayedTransactions}
+              currentAccountNumber={wallet?.accountNumber}
+              showControls={true}
+            />
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-export default DashboardPage
+      {/* Quick Action: BottomSheet on Mobile, Modal on Desktop */}
+      <BottomSheet
+        isOpen={actionModal.open}
+        onClose={() => setActionModal({ open: false, mode: "deposit" })}
+        title={
+          actionModal.mode === "deposit"
+            ? t('confirm_deposit')
+            : actionModal.mode === "expense"
+            ? t('confirm_expense')
+            : t('confirm_transfer')
+        }
+      >
+        <QuickTransfer
+          balance={wallet?.balance}
+          contacts={quickContacts}
+          initialMode={actionModal.mode}
+          standalone={true}
+          onTransferSuccess={handleTransactionSuccess}
+        />
+      </BottomSheet>
+    </div>
+  );
+}

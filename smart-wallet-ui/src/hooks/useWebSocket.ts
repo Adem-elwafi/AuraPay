@@ -11,23 +11,25 @@ interface UseWebSocketOptions {
   onWalletUpdate: (wallet: Wallet) => void;
 }
 
+// Relatif : passe par le proxy Vite (/ws -> http://localhost:8081/ws), même origine que l'API REST
+const SOCKET_URL = import.meta.env.VITE_WS_URL ?? '/ws';
+
 export const useWebSocket = ({ enabled, username, token, onWalletUpdate }: UseWebSocketOptions) => {
-  const stompClient = useRef<Client | null>(null);
   const lastWalletData = useRef<string>('');
 
+  // Le callback est conservé dans une ref : sinon chaque rendu du parent recréerait la connexion STOMP
+  const onWalletUpdateRef = useRef(onWalletUpdate);
   useEffect(() => {
-    if (!enabled || !username || !token) {
-      if (stompClient.current?.active) {
-        console.log('Deactivating WebSocket...');
-        stompClient.current.deactivate();
-      }
+    onWalletUpdateRef.current = onWalletUpdate;
+  }, [onWalletUpdate]);
+
+  useEffect(() => {
+    if (!enabled || !username || !token || token === 'sw-demo-session') {
       return;
     }
 
-    const socketUrl = 'http://localhost:8081/ws'; // Ajuster selon l'URL de l'API
-
     const client = new Client({
-      webSocketFactory: () => new SockJS(socketUrl),
+      webSocketFactory: () => new SockJS(SOCKET_URL),
       connectHeaders: {
         Authorization: `Bearer ${token}`,
       },
@@ -43,7 +45,7 @@ export const useWebSocket = ({ enabled, username, token, onWalletUpdate }: UseWe
 
     client.onConnect = (frame: IFrame) => {
       console.log('Connected to STOMP: ' + frame.body);
-      
+
       const topic = `/topic/wallet/${username}`;
       client.subscribe(topic, (message) => {
         if (message.body) {
@@ -54,7 +56,7 @@ export const useWebSocket = ({ enabled, username, token, onWalletUpdate }: UseWe
             // Prévention de l'Update Storm : On ne met à jour que si les données ont réellement changé
             if (stringifiedData !== lastWalletData.current) {
               lastWalletData.current = stringifiedData;
-              onWalletUpdate(newWallet);
+              onWalletUpdateRef.current(newWallet);
               console.log('Real-time wallet update received:', newWallet);
             }
           } catch (error) {
@@ -69,15 +71,11 @@ export const useWebSocket = ({ enabled, username, token, onWalletUpdate }: UseWe
     };
 
     client.activate();
-    stompClient.current = client;
 
     return () => {
-      if (stompClient.current) {
-        console.log('Cleaning up WebSocket connection...');
-        stompClient.current.deactivate();
-      }
+      console.log('Cleaning up WebSocket connection...');
+      void client.deactivate();
+      lastWalletData.current = '';
     };
-  }, [enabled, username, token, onWalletUpdate]);
-
-  return stompClient.current;
+  }, [enabled, username, token]);
 };

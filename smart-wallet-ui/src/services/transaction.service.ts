@@ -5,7 +5,7 @@ import type { DepositRequest, ExpenseRequest, TransactionResponse, TransferReque
  * Initiate a transfer between wallets
  */
 export const initiateTransfer = async (transferRequest: TransferRequest): Promise<TransactionResponse> => {
-  const response = await axiosInstance.post('/v1/transactions/transfer', transferRequest);
+  const response = await axiosInstance.post<TransactionResponse>('/v1/transactions/transfer', transferRequest);
   return response.data;
 };
 
@@ -13,7 +13,7 @@ export const initiateTransfer = async (transferRequest: TransferRequest): Promis
  * Register a personal expense for the logged-in user
  */
 export const createExpense = async (expenseRequest: ExpenseRequest): Promise<TransactionResponse> => {
-  const response = await axiosInstance.post('/v1/transactions/expense', expenseRequest);
+  const response = await axiosInstance.post<TransactionResponse>('/v1/transactions/expense', expenseRequest);
   return response.data;
 };
 
@@ -21,7 +21,7 @@ export const createExpense = async (expenseRequest: ExpenseRequest): Promise<Tra
  * Deposit funds into the logged-in user's wallet
  */
 export const createDeposit = async (depositRequest: DepositRequest): Promise<TransactionResponse> => {
-  const response = await axiosInstance.post('/v1/transactions/deposit', depositRequest);
+  const response = await axiosInstance.post<TransactionResponse>('/v1/transactions/deposit', depositRequest);
   return response.data;
 };
 
@@ -29,6 +29,6 @@ export const createDeposit = async (depositRequest: DepositRequest): Promise<Tra
  * Get the transaction history for the logged-in user
  */
 export const getTransactionHistory = async (): Promise<TransactionResponse[]> => {
-  const response = await axiosInstance.get('/v1/transactions/history');
+  const response = await axiosInstance.get<TransactionResponse[]>('/v1/transactions/history');
   return response.data;
 };
