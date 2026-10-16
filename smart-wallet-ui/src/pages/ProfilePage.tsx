@@ -1,436 +1,628 @@
-import { useEffect, useState, type FormEvent, type ChangeEvent } from 'react'
-import axios from 'axios'
-import api from '../api/axiosConfig'
-import type { Profile, UpdateProfileRequest } from '../api/types'
+import { useEffect, useState, type FormEvent, type ChangeEvent } from "react";
+import axios from "axios";
+import {
+  AlertCircle,
+  AtSign,
+  Camera,
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  KeyRound,
+  Lock,
+  Mail,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  Trash2,
+  User as UserIcon,
+  Wallet as WalletIcon,
+} from "lucide-react";
+import api, { getApiErrorMessage } from "../api/axiosConfig";
+import type { Profile, UpdateProfileRequest } from "../api/types";
+import { useAuth } from "../context/AuthContext";
+import AuraBackground from "../components/backgrounds/AuraBackground";
+import { Card, CardContent, CardFooter, CardHeader } from "../components/ui/Card";
+import Button from "../components/ui/Button";
+import TextField from "../components/ui/TextField";
+import { Badge, Pill } from "../components/ui/primitives";
+import { formatMoney } from "../lib/format";
+import { useLanguage } from "../context/LanguageContext";
 
-// ─── Floating Label Input ─────────────────────────────────────────────────────
-interface FloatingInputProps {
-  id: string
-  label: string
-  type?: string
-  value: string
-  onChange: (e: ChangeEvent<HTMLInputElement>) => void
-  autoComplete?: string
-  disabled?: boolean
-}
-
-function FloatingInput({
-  id,
-  label,
-  type = 'text',
-  value,
-  onChange,
-  autoComplete,
-  disabled,
-}: FloatingInputProps) {
-  const [focused, setFocused] = useState(false)
-  const lifted = focused || value.length > 0
-
-  return (
-    <div className="relative group">
-      {/* Glow ring on focus */}
-      <div
-        className={`absolute inset-0 rounded-xl transition-opacity duration-300 pointer-events-none
-          bg-linear-to-r from-amber-500/20 to-amber-600/10 blur-sm
-          ${focused ? 'opacity-100' : 'opacity-0'}`}
-      />
-
-      <input
-        id={id}
-        name={id}
-        type={type}
-        value={value}
-        onChange={onChange}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        autoComplete={autoComplete}
-        disabled={disabled}
-        placeholder=""
-        className={`
-          peer relative w-full rounded-xl px-4 pt-6 pb-2.5 text-sm font-light
-          bg-white/5 backdrop-blur-md
-          border transition-all duration-200 outline-none
-          text-white placeholder-transparent
-          disabled:opacity-40 disabled:cursor-not-allowed
-          ${focused
-            ? 'border-amber-500/60 shadow-[0_0_0_1px_rgba(245,158,11,0.3)]'
-            : 'border-white/10 hover:border-white/20'
-          }
-        `}
-      />
-
-      <label
-        htmlFor={id}
-        className={`
-          absolute left-4 pointer-events-none font-light transition-all duration-200 select-none
-          ${lifted
-            ? 'top-2 text-[10px] tracking-widest uppercase text-amber-400'
-            : 'top-4 text-sm text-white/40'
-          }
-        `}
-      >
-        {label}
-      </label>
-    </div>
-  )
-}
-
-// ─── Alert Banner ─────────────────────────────────────────────────────────────
-interface AlertProps {
-  type: 'error' | 'success'
-  message: string
-}
-
-function Alert({ type, message }: AlertProps) {
-  const isError = type === 'error'
-
-  return (
-    <div
-      className={`
-        flex items-start gap-3 rounded-xl px-4 py-3.5 text-sm font-light
-        border backdrop-blur-md
-        animate-in fade-in slide-in-from-top-2 duration-300
-        ${isError
-          ? 'bg-red-500/10 border-red-500/25 text-red-300'
-          : 'bg-amber-500/10 border-amber-500/25 text-amber-300'
-        }
-      `}
-    >
-      <span className="mt-px shrink-0 text-base" aria-hidden>
-        {isError ? '⊗' : '⊕'}
-      </span>
-      <p>{message}</p>
-    </div>
-  )
-}
-
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-interface AvatarProps {
-  initials: string;
-  avatarUrl?: string;
-}
-
-function Avatar({ initials, avatarUrl }: AvatarProps) {
-  return (
-    <div className="relative flex items-center justify-center">
-      {/* Outer pulse ring */}
-      <div className="absolute inset-0 rounded-full bg-amber-500/20 animate-ping [animation-duration:3s]" />
-      {/* Glow halo */}
-      <div className="absolute -inset-1 rounded-full bg-linear-to-br from-amber-500/30 via-amber-600/10 to-yellow-600/25 blur-md" />
-      {/* Ring */}
-      <div className="relative rounded-full ring-4 ring-amber-500/30 ring-offset-2 ring-offset-[#0b0a09] overflow-hidden">
-        {/* Avatar circle */}
-        {avatarUrl ? (
-          <img src={avatarUrl} alt="Avatar" className="w-24 h-24 rounded-full object-cover" />
-        ) : (
-          <div className="w-24 h-24 rounded-full bg-linear-to-br from-neutral-900 to-neutral-950 border border-white/10 flex items-center justify-center">
-            <span className="text-2xl font-light tracking-widest text-amber-200 select-none">
-              {initials}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Section Divider ──────────────────────────────────────────────────────────
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 mb-5">
-      <div className="h-px flex-1 bg-linear-to-r from-transparent via-white/10 to-transparent" />
-      <span className="text-[10px] tracking-[0.2em] uppercase font-light text-white/30">
-        {children}
-      </span>
-      <div className="h-px flex-1 bg-linear-to-r from-transparent via-white/10 to-transparent" />
-    </div>
-  )
-}
-
-// ─── ProfilePage ──────────────────────────────────────────────────────────────
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const { wallet, refreshUserData } = useAuth();
+  const { t } = useLanguage();
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [formData, setFormData] = useState<UpdateProfileRequest>({
-    email: '',
-    fullName: '',
-    avatarUrl: '',
-  })
-  
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+    email: "",
+    fullName: "",
+    avatarUrl: "",
+  });
 
-  // Initialization fetch
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Password change state
+  const [passwordState, setPasswordState] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+
+  // Copied accountNumber feedback
+  const [copiedAccount, setCopiedAccount] = useState(false);
+
+  // Initialize and load user profile
   useEffect(() => {
     const load = async () => {
       try {
-        setError(null)
-        const response = await api.get<Profile>('/v1/profile/me')
-        setProfile(response.data)
+        setError(null);
+        const { data } = await api.get<Profile>("/v1/profile/me");
+
+        setProfile(data);
         setFormData({
-          email: response.data.email || '',
-          fullName: response.data.fullName || '',
-          avatarUrl: response.data.avatarUrl || '',
-        })
+          email: data.email || "",
+          fullName: data.fullName || "",
+          avatarUrl: data.avatarUrl || "",
+        });
       } catch (err: unknown) {
-        if (axios.isAxiosError(err)) {
-          setError(typeof err.response?.data === 'string' ? err.response.data : 'Impossible de charger le profil.')
+        if (localStorage.getItem('token') === 'sw-demo-session') {
+          const demoProfile = {
+            id: 1,
+            username: "adem_dev",
+            fullName: "Adem Elwafi",
+            email: "adem@smartwallet.com",
+            avatarUrl: "",
+          };
+          setProfile(demoProfile);
+          setFormData({
+            email: demoProfile.email,
+            fullName: demoProfile.fullName,
+            avatarUrl: "",
+          });
         } else {
-          setError('Une erreur inattendue est survenue.')
+          setError(getApiErrorMessage(err, "Impossible de charger le profil."));
         }
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    void load()
-  }, [])
+    void load();
+  }, []);
 
-  // Calculate dynamic initials for the avatar
+  // Compute initials
+  const displayName = formData.fullName || profile?.fullName || profile?.username || "Membre";
+
   const getInitials = () => {
-    if (formData.fullName) {
-      const parts = formData.fullName.split(' ').filter(Boolean)
-      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-      return parts[0].substring(0, 2).toUpperCase()
+    if (displayName) {
+      const parts = displayName.trim().split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return parts[0].substring(0, 2).toUpperCase();
     }
-    if (profile?.username) return profile.username.substring(0, 2).toUpperCase()
-    return 'US'
-  }
+    return "SW";
+  };
 
-  function handleChange(e: ChangeEvent<HTMLInputElement>) {
-    const { name, value } = e.target
-    setFormData((prev: UpdateProfileRequest) => ({ ...prev, [name]: value }))
-    setError(null)
-    setSuccess(null)
-  }
+  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setError(null);
+    setSuccess(null);
+  };
 
   const handleImageUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        setError("L'image est trop grande (max 5MB)")
-        return
+        setError("L'image est trop volumineuse (maximum 5 Mo).");
+        return;
       }
-      const reader = new FileReader()
+      const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData((prev: UpdateProfileRequest) => ({ ...prev, avatarUrl: reader.result as string }))
-        setError(null)
-        setSuccess(null)
-      }
-      reader.readAsDataURL(file)
+        setFormData((prev) => ({ ...prev, avatarUrl: reader.result as string }));
+        setError(null);
+        setSuccess(null);
+      };
+      reader.readAsDataURL(file);
     }
-  }
+  };
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    setError(null)
-    setSuccess(null)
+  const handleRemoveAvatar = () => {
+    setFormData((prev) => ({ ...prev, avatarUrl: "" }));
+    setError(null);
+    setSuccess(null);
+  };
+
+  const handleSubmitProfile = async (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
 
     try {
-      const response = await api.put<Profile>('/v1/profile/me', formData)
-      setProfile(response.data)
-      setSuccess('Profil mis à jour avec succès.')
+      const { data: updated } = await api.put<Profile>("/v1/profile/me", formData);
+
+      setProfile(updated);
+      setSuccess("Votre profil a été mis à jour avec succès.");
+      // Refresh AuthContext so that Header avatar and name update instantly
+      void refreshUserData();
     } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(typeof err.response?.data === 'string' ? err.response.data : 'Impossible de mettre à jour le profil.')
-      } else {
-        setError('Une erreur inattendue est survenue.')
-      }
+      setError(getApiErrorMessage(err, "Impossible de mettre à jour le profil."));
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
+
+  const handlePasswordSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    if (passwordState.newPassword !== passwordState.confirmPassword) {
+      setPasswordError("Les nouveaux mots de passe ne correspondent pas.");
+      return;
+    }
+    if (passwordState.newPassword.length < 8) {
+      setPasswordError("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      await api.put("/v1/profile/password", {
+        currentPassword: passwordState.currentPassword,
+        newPassword: passwordState.newPassword,
+      });
+      setPasswordSuccess("Mot de passe mis à jour avec succès.");
+      setPasswordState({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err: unknown) {
+      // Ne jamais simuler un succès : l'endpoint n'existe pas encore côté API
+      setPasswordError(
+        axios.isAxiosError(err) && err.response?.status === 404
+          ? "Le changement de mot de passe n'est pas encore disponible."
+          : getApiErrorMessage(err, "Erreur lors du changement de mot de passe.")
+      );
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
+  const copyAccountNumber = () => {
+    const acc = wallet?.accountNumber;
+    if (!acc) return;
+    navigator.clipboard.writeText(acc);
+    setCopiedAccount(true);
+    setTimeout(() => setCopiedAccount(false), 2000);
+  };
 
   if (loading) {
     return (
-      <div className="flex min-h-[80vh] items-center justify-center bg-transparent">
+      <div className="relative flex min-h-[60vh] items-center justify-center">
+        <AuraBackground variant="app" />
         <div className="flex flex-col items-center gap-4">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-amber-500/20 border-t-amber-500"></div>
-          <span className="text-sm font-light tracking-[0.2em] uppercase text-amber-500/80">Chargement...</span>
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-[var(--accent-20)] border-t-[var(--accent)]" />
+          <span className="text-sm font-medium uppercase tracking-[0.2em] text-[var(--muted)]">
+            Chargement de votre profil…
+          </span>
         </div>
       </div>
-    )
+    );
   }
 
+  // Pas de numéro fictif : l'API n'expose pas d'id de profil, seul le wallet porte le numéro de compte
+  const effectiveAccountNumber = wallet?.accountNumber ?? "—";
+
   return (
-    /* ── Full-page wrapper with animated mesh background ── */
-    <div className="relative min-h-[80vh] w-full overflow-hidden flex items-center justify-center px-4 py-8 bg-black rounded-3xl border border-white/5">
+    <div className="relative space-y-8 animate-in fade-in duration-300">
+      {/* Background Aura */}
+      <AuraBackground variant="app" />
 
-      {/* Animated gradient orbs */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/4 -left-1/4 w-[60vw] h-[60vw] rounded-full
-          bg-linear-to-br from-amber-500/5 to-transparent blur-[120px]
-          animate-[drift_18s_ease-in-out_infinite_alternate]" />
-        <div className="absolute -bottom-1/4 -right-1/4 w-[55vw] h-[55vw] rounded-full
-          bg-linear-to-tl from-amber-600/5 to-transparent blur-[100px]
-          animate-[drift_22s_ease-in-out_infinite_alternate-reverse]" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[40vw] h-[40vw] rounded-full
-          bg-linear-to-br from-neutral-900/30 to-transparent blur-[140px]
-          animate-[drift_15s_ease-in-out_infinite_alternate]" />
-        {/* Grid overlay */}
-        <div className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-            backgroundSize: '40px 40px',
-          }}
-        />
-      </div>
-
-      {/* ── Main card ── */}
-      <div className="relative w-full max-w-2xl">
-        {/* Card glow */}
-        <div className="absolute inset-0 rounded-3xl bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.05),transparent_40%),radial-gradient(circle_at_bottom_right,rgba(245,158,11,0.03),transparent_40%)] blur-xl scale-105" />
-
-        <div className="relative rounded-3xl border border-white/10 bg-white/[0.03] backdrop-blur-md overflow-hidden shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)]">
-
-          {/* Top edge shine */}
-          <div className="absolute top-0 inset-x-8 h-px bg-linear-to-r from-transparent via-white/20 to-transparent" />
-
-          {/* ── Hero header ── */}
-          <div className="relative px-8 pt-12 pb-8 flex flex-col items-center text-center overflow-hidden">
-            {/* Header background tint */}
-            <div className="absolute inset-0 bg-linear-to-b from-amber-950/10 to-transparent pointer-events-none" />
-
-            <div className="relative group cursor-pointer rounded-full">
-              <Avatar initials={getInitials()} avatarUrl={formData.avatarUrl} />
-              
-              {/* Upload Overlay */}
-              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-full bg-black/60 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </div>
-              
-              {/* Hidden file input */}
-              <input 
-                type="file" 
-                accept="image/*" 
-                className="absolute inset-0 z-20 h-full w-full cursor-pointer opacity-0" 
-                onChange={handleImageUpload} 
-                disabled={saving}
-                title="Changer l'avatar"
-              />
-            </div>
-
-            <div className="relative mt-6">
-              <h1 className="text-xl font-extralight tracking-[0.15em] text-white/90 uppercase">
-                {formData.fullName || profile?.username || 'Votre Profil'}
-              </h1>
-              <p className="mt-1 text-xs tracking-[0.3em] uppercase text-amber-400/70 font-light">
-                @{profile?.username} · Membre Elite
-              </p>
-            </div>
-
-            {/* Decorative accent line */}
-            <div className="mt-6 w-16 h-px bg-linear-to-r from-transparent via-amber-500/50 to-transparent" />
-          </div>
-
-          {/* ── Form ── */}
-          <form onSubmit={handleSubmit} className="px-8 pb-10 space-y-6">
-
-            {/* Alerts */}
-            {error && <Alert type="error" message={error} />}
-            {success && <Alert type="success" message={success} />}
-
-            {/* Personal info */}
-            <div>
-              <SectionLabel>Informations Personnelles</SectionLabel>
-              <div className="space-y-4">
-                <FloatingInput
-                  id="fullName"
-                  label="Nom complet"
-                  value={formData.fullName ?? ''}
-                  onChange={handleChange}
-                  autoComplete="name"
-                  disabled={saving}
-                />
-              </div>
-            </div>
-
-            {/* Contact */}
-            <div>
-              <SectionLabel>Coordonnées</SectionLabel>
-              <div className="space-y-4">
-                <FloatingInput
-                  id="email"
-                  label="Adresse e-mail"
-                  type="email"
-                  value={formData.email ?? ''}
-                  onChange={handleChange}
-                  autoComplete="email"
-                  disabled={saving}
-                />
-              </div>
-            </div>
-
-            {/* ── Save button ── */}
-            <div className="pt-4">
-              <button
-                type="submit"
-                disabled={saving}
-                className="
-                  relative w-full overflow-hidden rounded-xl
-                  px-6 py-4 text-sm font-semibold tracking-[0.15em] uppercase
-                  bg-amber-500 text-black hover:bg-amber-400
-                  shadow-[0_0_15px_rgba(245,158,11,0.2)]
-                  transition-all duration-200
-                  active:scale-[0.97]
-                  disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
-                "
-              >
-                {/* Shimmer sweep */}
-                <span className="absolute inset-0 -translate-x-full group-hover:translate-x-full
-                  bg-linear-to-r from-transparent via-white/20 to-transparent
-                  transition-transform duration-700 ease-in-out" />
-
-                {/* Label */}
-                <span className="relative flex items-center justify-center gap-2">
-                  {saving ? (
-                    <>
-                      <svg
-                        className="animate-spin h-3.5 w-3.5 text-black/70"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        aria-hidden
-                      >
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                        <path className="opacity-75" fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Enregistrement…
-                    </>
-                  ) : (
-                    'Enregistrer les modifications'
-                  )}
-                </span>
-              </button>
-            </div>
-
-          </form>
-
-          {/* Bottom edge shine */}
-          <div className="absolute bottom-0 inset-x-8 h-px bg-linear-to-r from-transparent via-white/10 to-transparent" />
+      {/* Page Title & Status Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <Pill icon={Shield} className="mb-3">
+            Espace Sécurisé · SmartWallet Identity
+          </Pill>
+          <h1 className="font-display text-3xl font-bold tracking-tight text-[var(--text)] sm:text-4xl">
+            Mon Profil & Paramètres
+          </h1>
+          <p className="mt-1 text-sm text-[var(--muted)] sm:text-base">
+            Gérez votre identité numérique, vos coordonnées bancaires et vos clés de sécurité.
+          </p>
         </div>
 
-        {/* Bottom badge */}
-        <p className="mt-6 text-center text-[10px] tracking-[0.25em] uppercase text-white/20 font-light">
-          SmartWallet · Secured with 256-bit encryption
-        </p>
+        {/* Status Badges */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="accent">Membre Vérifié</Badge>
+          <Badge variant="positive">2FA Activé</Badge>
+          <Badge variant="default">Tier Élite</Badge>
+        </div>
       </div>
 
-      {/* Keyframe for the drifting orbs — injected via style tag */}
-      <style>{`
-        @keyframes drift {
-          0%   { transform: translate(0, 0) scale(1); }
-          50%  { transform: translate(2%, 3%) scale(1.05); }
-          100% { transform: translate(-1%, -2%) scale(0.97); }
-        }
-      `}</style>
+      {/* Main Grid: Left Column (Identity Overview) + Right Column (Forms) */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+        {/* Left Column: Avatar & Account Card */}
+        <div className="space-y-6 lg:col-span-5">
+          {/* Identity Card */}
+          <Card className="text-center overflow-hidden">
+            <CardHeader
+              eyebrow="IDENTITÉ"
+              title="Profil Numérique"
+              className="text-left"
+            />
+
+            <CardContent className="mt-2 flex flex-col items-center">
+              {/* Avatar with luxury glow ring & upload trigger */}
+              <div className="relative group my-4">
+                {/* Glow ring */}
+                <div className="absolute -inset-2 rounded-full bg-gradient-to-br from-emerald-400/25 via-emerald-200/20 to-transparent blur-md opacity-80 group-hover:opacity-100 transition duration-500" />
+
+                {/* Avatar container */}
+                <div className="relative h-28 w-28 rounded-full overflow-hidden ring-4 ring-[var(--accent)] ring-offset-4 ring-offset-[var(--bg)] bg-[var(--surface-2)] flex items-center justify-center shadow-sm">
+                  {formData.avatarUrl ? (
+                    <img
+                      src={formData.avatarUrl}
+                      alt="Avatar utilisateur"
+                      className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-[var(--surface-2)]">
+                      <span className="font-display text-3xl font-bold tracking-wider text-[var(--accent)] select-none">
+                        {getInitials()}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Upload overlay hover */}
+                  <label
+                    htmlFor="avatar-upload"
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-pointer"
+                    title="Changer la photo de profil"
+                  >
+                    <Camera className="h-6 w-6 text-white mb-1" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-white">
+                      Modifier
+                    </span>
+                  </label>
+                  <input
+                    id="avatar-upload"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    disabled={saving}
+                    className="sr-only"
+                  />
+                </div>
+              </div>
+
+              {/* Display Name and Handle */}
+              <h2 className="text-xl font-bold tracking-tight text-[var(--text)]">
+                {displayName}
+              </h2>
+              <p className="mt-0.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+                @{profile?.username || "utilisateur"}
+              </p>
+
+              {/* Avatar Action Buttons */}
+              <div className="mt-4 flex items-center gap-2">
+                <label
+                  htmlFor="avatar-upload-btn"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface-2)] px-3.5 py-1.5 text-xs font-semibold text-[var(--text)] hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] shadow-2xs transition cursor-pointer"
+                >
+                  <Camera className="h-3.5 w-3.5 text-[var(--accent)]" />
+                  Importer une photo
+                </label>
+                <input
+                  id="avatar-upload-btn"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  disabled={saving}
+                  className="sr-only"
+                />
+
+                {formData.avatarUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveAvatar}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-semibold text-rose-400 hover:bg-rose-500/20 transition cursor-pointer shadow-2xs"
+                    title="Supprimer la photo"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
+                  </button>
+                )}
+              </div>
+            </CardContent>
+
+            {/* Account Metadata List */}
+            <div className="mt-6 border-t border-[var(--line)] pt-4 space-y-3 text-left">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--muted)] flex items-center gap-1.5">
+                  <CreditCard className="h-3.5 w-3.5 text-[var(--subtle)]" /> Compte SmartWallet
+                </span>
+                <button
+                  onClick={copyAccountNumber}
+                  className="font-mono font-medium text-[var(--text)] flex items-center gap-1 hover:text-[var(--accent-light)] transition cursor-pointer"
+                  title="Copier le numéro de compte"
+                >
+                  {effectiveAccountNumber}
+                  <Copy className="h-3 w-3" />
+                </button>
+              </div>
+
+              {copiedAccount && (
+                <p className="text-[11px] text-[var(--positive)] text-right">
+                  Copié dans le presse-papier !
+                </p>
+              )}
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--muted)] flex items-center gap-1.5">
+                  <WalletIcon className="h-3.5 w-3.5 text-[var(--subtle)]" /> Solde disponible
+                </span>
+                <span className="font-semibold text-[var(--text)]">
+                  {wallet?.balance != null
+                    ? formatMoney(wallet.balance)
+                    : "—"}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-[var(--muted)] flex items-center gap-1.5">
+                  <ShieldCheck className="h-3.5 w-3.5 text-[var(--positive)]" /> Statut KYC
+                </span>
+                <span className="text-[var(--positive)] font-semibold flex items-center gap-1">
+                  Vérifié niveau 3
+                </span>
+              </div>
+            </div>
+          </Card>
+
+          {/* Security Overview Card */}
+          <Card>
+            <CardHeader
+              eyebrow="PROTECTION"
+              title="Sécurité Active"
+              icon={Shield}
+            />
+            <CardContent className="space-y-3">
+              <div className="flex items-start gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-3">
+                <div className="mt-0.5 rounded-lg bg-[var(--accent-soft)] p-2 text-[var(--accent)]">
+                  <Lock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold text-[var(--text)]">Chiffrement AES-256</h4>
+                  <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                    Toutes vos données et transactions sont chiffrées de bout en bout.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-3">
+                <div className="mt-0.5 rounded-lg bg-[var(--accent-soft)] p-2 text-[var(--accent)]">
+                  <ShieldCheck className="h-4 w-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-semibold text-[var(--text)]">Double Authentification (2FA)</h4>
+                  <p className="text-[11px] text-[var(--muted)] mt-0.5">
+                    Validation requise pour tout virement supérieur à 500 DT.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right Column: Profile Edit Form + Password Change */}
+        <div className="space-y-6 lg:col-span-7">
+          {/* Personal Info Form */}
+          <form onSubmit={handleSubmitProfile}>
+            <Card>
+              <CardHeader
+                eyebrow="COORDONNÉES"
+                title={t('personal_info')}
+                description="Modifiez vos données de profil utilisées pour les notifications et les transferts."
+                icon={UserIcon}
+              />
+
+              <CardContent className="space-y-5">
+                {/* Alerts */}
+                {error && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-[rgba(251,113,133,0.3)] bg-[var(--negative-15)] p-4 text-sm text-[var(--negative)] animate-in fade-in">
+                    <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">{t('error')}</p>
+                      <p className="text-xs mt-0.5 opacity-90">{error}</p>
+                    </div>
+                  </div>
+                )}
+
+                {success && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-[var(--accent-30)] bg-[var(--accent-10)] p-4 text-sm text-[var(--positive)] animate-in fade-in">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">{t('success')}</p>
+                      <p className="text-xs mt-0.5 opacity-90">{success}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Full Name */}
+                <TextField
+                  id="fullName"
+                  name="fullName"
+                  label={t('full_name')}
+                  icon={UserIcon}
+                  value={formData.fullName || ""}
+                  onChange={handleInputChange}
+                  placeholder="ex. Alexandre Martin"
+                  disabled={saving}
+                />
+
+                {/* Email Address */}
+                <TextField
+                  id="email"
+                  name="email"
+                  type="email"
+                  label={t('email')}
+                  icon={Mail}
+                  value={formData.email || ""}
+                  onChange={handleInputChange}
+                  placeholder="alexandre@example.com"
+                  disabled={saving}
+                />
+
+                {/* Username (Read Only) */}
+                <TextField
+                  id="username"
+                  name="username"
+                  label={t('username')}
+                  icon={AtSign}
+                  value={profile?.username || ""}
+                  disabled
+                  hint="Le nom d'utilisateur est unique et sert à votre identifiant de connexion."
+                />
+
+                {/* Account Number (Read Only) */}
+                <TextField
+                  id="accountNumber"
+                  label="Numéro de compte principal (IBAN)"
+                  icon={CreditCard}
+                  value={effectiveAccountNumber}
+                  disabled
+                  hint="Identifiant bancaire géré par le protocole SmartWallet."
+                />
+              </CardContent>
+
+              <CardFooter className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    if (profile) {
+                      setFormData({
+                        email: profile.email || "",
+                        fullName: profile.fullName || "",
+                        avatarUrl: profile.avatarUrl || "",
+                      });
+                      setError(null);
+                      setSuccess(null);
+                    }
+                  }}
+                  disabled={saving}
+                >
+                  <RefreshCw className="h-4 w-4" /> Réinitialiser
+                </Button>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={saving}
+                  disabled={saving}
+                >
+                  {saving ? t('loading') : t('save')}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+
+          {/* Password & Security Card */}
+          <form onSubmit={handlePasswordSubmit}>
+            <Card>
+              <CardHeader
+                eyebrow="SÉCURITÉ & AUTHENTIFICATION"
+                title={t('change_password')}
+                description="Assurez-vous d'utiliser un mot de passe fort d'au moins 8 caractères."
+                icon={KeyRound}
+              />
+
+              <CardContent className="space-y-5">
+                {passwordError && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-[rgba(251,113,133,0.3)] bg-[var(--negative-15)] p-4 text-sm text-[var(--negative)] animate-in fade-in">
+                    <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">{t('error')}</p>
+                      <p className="text-xs mt-0.5 opacity-90">{passwordError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {passwordSuccess && (
+                  <div className="flex items-start gap-3 rounded-2xl border border-[var(--accent-30)] bg-[var(--accent-10)] p-4 text-sm text-[var(--positive)] animate-in fade-in">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">{t('success')}</p>
+                      <p className="text-xs mt-0.5 opacity-90">{passwordSuccess}</p>
+                    </div>
+                  </div>
+                )}
+
+                <TextField
+                  id="currentPassword"
+                  type="password"
+                  label={t('current_password')}
+                  icon={Lock}
+                  value={passwordState.currentPassword}
+                  onChange={(e) =>
+                    setPasswordState((prev) => ({ ...prev, currentPassword: e.target.value }))
+                  }
+                  placeholder="••••••••••••"
+                  disabled={passwordSaving}
+                />
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <TextField
+                    id="newPassword"
+                    type="password"
+                    label={t('new_password')}
+                    icon={Lock}
+                    value={passwordState.newPassword}
+                    onChange={(e) =>
+                      setPasswordState((prev) => ({ ...prev, newPassword: e.target.value }))
+                    }
+                    placeholder="••••••••••••"
+                    disabled={passwordSaving}
+                  />
+
+                  <TextField
+                    id="confirmPassword"
+                    type="password"
+                    label={t('confirm_password')}
+                    icon={Lock}
+                    value={passwordState.confirmPassword}
+                    onChange={(e) =>
+                      setPasswordState((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                    }
+                    placeholder="••••••••••••"
+                    disabled={passwordSaving}
+                  />
+                </div>
+              </CardContent>
+
+              <CardFooter className="flex justify-end">
+                <Button
+                  type="submit"
+                  variant="subtle"
+                  loading={passwordSaving}
+                  disabled={
+                    passwordSaving ||
+                    !passwordState.currentPassword ||
+                    !passwordState.newPassword ||
+                    !passwordState.confirmPassword
+                  }
+                >
+                  {passwordSaving ? t('loading') : t('change_password')}
+                </Button>
+              </CardFooter>
+            </Card>
+          </form>
+        </div>
+      </div>
     </div>
-  )
+  );
 }
