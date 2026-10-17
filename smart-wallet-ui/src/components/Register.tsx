@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Eye, EyeOff, Lock, Mail, User, UserCheck, AlertCircle } from 'lucide-react'
 import api, { getApiErrorMessage } from '../api/axiosConfig'
+import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import Button from './ui/Button'
 import TextField from './ui/TextField'
 
@@ -86,12 +87,28 @@ export default function Register() {
     setLoading(true)
 
     try {
-      await api.post('/v1/auth/register', {
-        username: form.username.trim(),
-        email: form.email.trim(),
-        password: form.password,
-        ...(form.fullName.trim() ? { fullName: form.fullName.trim() } : {}),
-      })
+      if (isSupabaseConfigured && supabase) {
+        const { error } = await supabase.auth.signUp({
+          email: form.email.trim(),
+          password: form.password,
+          options: {
+            data: {
+              username: form.username.trim(),
+              full_name: form.fullName.trim() || form.username.trim(),
+            },
+          },
+        })
+        if (error) {
+          throw new Error(error.message)
+        }
+      } else {
+        await api.post('/v1/auth/register', {
+          username: form.username.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          ...(form.fullName.trim() ? { fullName: form.fullName.trim() } : {}),
+        })
+      }
 
       setSuccessMessage('Compte créé avec succès ! Redirection vers la connexion…')
 
@@ -100,8 +117,9 @@ export default function Register() {
       }, 1200)
     } catch (err: unknown) {
       console.error('Erreur inscription', err)
+      const customMsg = err instanceof Error ? err.message : null
       setServerError(
-        getApiErrorMessage(err, "Une erreur est survenue lors de l'inscription. Vérifiez les informations saisies.")
+        customMsg || getApiErrorMessage(err, "Une erreur est survenue lors de l'inscription. Vérifiez les informations saisies.")
       )
     } finally {
       setLoading(false)

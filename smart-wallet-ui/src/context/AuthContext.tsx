@@ -5,6 +5,7 @@ import api, { setUnauthorizedHandler } from '../api/axiosConfig'
 import type { AuthResponse, Profile, Wallet } from '../api/types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { formatMoney } from '../lib/format'
+import { supabase, isSupabaseConfigured } from '../lib/supabase'
 
 export interface AppNotification {
   id: string
@@ -152,6 +153,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem('token')
+    if (isSupabaseConfigured && supabase) {
+      void supabase.auth.signOut().catch(() => undefined)
+    }
     clearSession()
     setLoading(false)
     navigate('/login', { replace: true })
@@ -163,6 +167,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshUserData = useCallback(async () => {
+    if (isSupabaseConfigured && supabase) {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        setLoading(true)
+        try {
+          const [profileRes, walletRes] = await Promise.all([
+            supabase.from('profiles').select('*').eq('id', session.user.id).maybeSingle(),
+            supabase.from('wallets').select('*').eq('user_id', session.user.id).maybeSingle(),
+          ])
+
+          setUser({
+            username: profileRes.data?.username || session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'Utilisateur',
+            fullName: profileRes.data?.full_name || session.user.user_metadata?.full_name || '',
+            email: session.user.email || '',
+            avatarUrl: profileRes.data?.avatar_url || '',
+          })
+
+          setWallet({
+            balance: Number(walletRes.data?.balance) || 0,
+            currency: walletRes.data?.currency || 'TND',
+            accountNumber: walletRes.data?.account_number || `SW-${session.user.id.slice(0, 8)}`,
+          })
+          setIsAuthenticated(true)
+        } catch (e) {
+          console.warn("Échec chargement session Supabase:", e)
+        } finally {
+          setLoading(false)
+        }
+        return
+      }
+    }
+
     let token = localStorage.getItem('token')
     if (typeof window !== 'undefined' && window.location) {
       const isDemo = new URLSearchParams(window.location.search).get('demo') === 'true'
@@ -247,6 +283,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (credentials: { username: string; password: string }) => {
+      if (isSupabaseConfigured && supabase) {
+        let email = credentials.username.trim()
+        if (!email.includes('@')) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('email')
+            .eq('username', email)
+            .maybeSingle()
+          if (profile?.email) {
+            email = profile.email
+          }
+        }
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password: credentials.password,
+        })
+        if (error) {
+          throw new Error(error.message)
+        }
+        if (data.session) {
+          await loginSuccess(data.session.access_token)
+          return
+        }
+      }
+
       const response = await api.post<AuthResponse>('/v1/auth/authenticate', credentials)
       await loginSuccess(response.data.token)
     },
