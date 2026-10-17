@@ -24,6 +24,8 @@ import {
   ShoppingBag,
   MoreHorizontal,
   ShieldAlert,
+  Cloud,
+  CloudOff,
 } from "lucide-react";
 import { Card, CardHeader } from "../components/ui/Card";
 import Button from "../components/ui/Button";
@@ -34,6 +36,7 @@ import { useSyncEngine } from "../services/syncEngine";
 import { db } from "../lib/db";
 import { formatMoney } from "../lib/format";
 import { cn } from "../lib/cn";
+import { getSupabaseConfig, setCustomSupabaseConfig, clearCustomSupabaseConfig } from "../lib/supabase";
 
 export interface TunisianCategory {
   id: string;
@@ -92,10 +95,37 @@ export default function SettingsPage() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState("#10b981");
 
+  // Supabase Cloud Configuration
+  const [supabaseConfig] = useState(getSupabaseConfig);
+  const [inputUrl, setInputUrl] = useState(supabaseConfig.url || "");
+  const [inputKey, setInputKey] = useState(supabaseConfig.anonKey || "");
+  const [showSupabaseForm, setShowSupabaseForm] = useState(!supabaseConfig.isConfigured);
+  const [supabaseSaveError, setSupabaseSaveError] = useState<string | null>(null);
+
   // Status & Feedback
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
+
+  const handleConnectSupabase = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSupabaseSaveError(null);
+    if (!inputUrl.trim() || !inputKey.trim()) {
+      setSupabaseSaveError("Veuillez renseigner l'URL et la clé anon de votre projet Supabase.");
+      return;
+    }
+    if (!inputUrl.startsWith("http")) {
+      setSupabaseSaveError("L'URL Supabase doit commencer par https://");
+      return;
+    }
+    setCustomSupabaseConfig(inputUrl, inputKey);
+  };
+
+  const handleDisconnectSupabase = () => {
+    if (window.confirm("Voulez-vous déconnecter Supabase et repasser en Mode Local Autonome ?")) {
+      clearCustomSupabaseConfig();
+    }
+  };
 
   // Save Settings Handlers
   const handleSaveBudget = () => {
@@ -559,6 +589,90 @@ export default function SettingsPage() {
           eyebrow="Synchronisation & Sauvegarde"
           icon={Database}
         />
+
+        {/* Supabase Cloud Interactive Connector */}
+        <div className="mt-5 rounded-2xl border border-[var(--line)] bg-[var(--surface-2)] p-4 sm:p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-[var(--line)]">
+            <div className="flex items-center gap-3">
+              <div
+                className={cn(
+                  "h-10 w-10 rounded-xl grid place-items-center shrink-0",
+                  supabaseConfig.isConfigured ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-500/15 text-amber-400"
+                )}
+              >
+                {supabaseConfig.isConfigured ? <Cloud className="h-5 w-5" /> : <CloudOff className="h-5 w-5" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold text-[var(--text)]">Connexion Supabase Cloud</h4>
+                  <Badge variant={supabaseConfig.isConfigured ? "accent" : "outline"}>
+                    {supabaseConfig.isConfigured ? "Connecté au Cloud" : "Mode Local Autonome"}
+                  </Badge>
+                </div>
+                <p className="text-xs text-[var(--muted)] mt-0.5">
+                  {supabaseConfig.isConfigured
+                    ? `Synchronisation en temps réel active avec votre projet : ${supabaseConfig.url}`
+                    : "Supabase n'est pas encore connecté. Renseignez vos 2 clés ci-dessous pour activer la sauvegarde Cloud instantanément."}
+                </p>
+              </div>
+            </div>
+
+            {supabaseConfig.isConfigured ? (
+              <Button size="sm" variant="outline" onClick={handleDisconnectSupabase} className="shrink-0 text-xs text-rose-400 hover:text-rose-300">
+                Déconnecter / Changer
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setShowSupabaseForm((v) => !v)} className="shrink-0 text-xs">
+                {showSupabaseForm ? "Masquer le formulaire" : "Configurer les clés"}
+              </Button>
+            )}
+          </div>
+
+          {/* Form to connect Supabase */}
+          {(!supabaseConfig.isConfigured || showSupabaseForm) && (
+            <form onSubmit={handleConnectSupabase} className="mt-4 space-y-3">
+              {supabaseSaveError && (
+                <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-2.5 text-xs text-rose-400">
+                  {supabaseSaveError}
+                </div>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
+                    URL du projet Supabase (Project URL)
+                  </label>
+                  <input
+                    type="url"
+                    value={inputUrl}
+                    onChange={(e) => setInputUrl(e.target.value)}
+                    placeholder="https://xyzcompany.supabase.co"
+                    className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text)] focus:border-[var(--accent)] focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-[var(--muted)] mb-1">
+                    Clé publique anon (Project API Key anon)
+                  </label>
+                  <input
+                    type="text"
+                    value={inputKey}
+                    onChange={(e) => setInputKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX..."
+                    className="w-full rounded-xl border border-[var(--line)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--text)] focus:border-[var(--accent)] focus:outline-none font-mono"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2">
+                <span className="text-[11px] text-[var(--muted)]">
+                  💡 Retrouvez ces clés sur <strong>supabase.com</strong> ➔ Votre Projet ➔ <strong>Project Settings</strong> ➔ <strong>API</strong>.
+                </span>
+                <Button type="submit" size="sm" variant="primary" className="text-xs shrink-0">
+                  <Cloud className="h-3.5 w-3.5 mr-1.5" /> Enregistrer & Activer le Cloud
+                </Button>
+              </div>
+            </form>
+          )}
+        </div>
 
         <div className="mt-5 grid gap-5 md:grid-cols-3">
           {/* Cloud / Sync Status Block */}
