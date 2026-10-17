@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isLocalToken, localAdapter } from '../lib/localAuth';
 
 const api = axios.create({
     baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -28,6 +29,11 @@ api.interceptors.request.use((config) => {
     }
 
     const token = getCurrentToken();
+    // Session locale (aucun backend) : les requêtes sont servies depuis le navigateur
+    if (isLocalToken(token)) {
+        config.adapter = localAdapter;
+        return config;
+    }
     if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
     }

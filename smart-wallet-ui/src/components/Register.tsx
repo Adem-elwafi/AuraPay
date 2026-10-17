@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Eye, EyeOff, Lock, Mail, User, UserCheck, AlertCircle } from 'lucide-react'
 import api, { getApiErrorMessage } from '../api/axiosConfig'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import { LOCAL_MODE_MESSAGE, isBackendUnavailable, registerLocalAccount } from '../lib/localAuth'
+import { useAuth } from '../context/AuthContext'
 import Button from './ui/Button'
 import TextField from './ui/TextField'
 
@@ -11,6 +13,7 @@ const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,30}$/
 
 export default function Register() {
   const navigate = useNavigate()
+  const { loginLocal } = useAuth()
 
   const [form, setForm] = useState({
     username: '',
@@ -102,12 +105,23 @@ export default function Register() {
           throw new Error(error.message)
         }
       } else {
-        await api.post('/v1/auth/register', {
+        const payload = {
           username: form.username.trim(),
           email: form.email.trim(),
           password: form.password,
           ...(form.fullName.trim() ? { fullName: form.fullName.trim() } : {}),
-        })
+        }
+        try {
+          await api.post('/v1/auth/register', payload)
+        } catch (err: unknown) {
+          if (!isBackendUnavailable(err)) throw err
+          // Ni Supabase ni Spring Boot (ex. Vercel statique) : mode local autonome, jamais d'écran 405
+          const account = await registerLocalAccount(payload)
+          await loginLocal(account)
+          setSuccessMessage(LOCAL_MODE_MESSAGE)
+          setTimeout(() => navigate('/dashboard', { replace: true }), 1500)
+          return
+        }
       }
 
       setSuccessMessage('Compte créé avec succès ! Redirection vers la connexion…')

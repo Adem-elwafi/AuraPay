@@ -6,6 +6,17 @@ import type { AuthResponse, Profile, Wallet } from '../api/types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { formatMoney } from '../lib/format'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
+import {
+  LOCAL_MODE_MESSAGE,
+  authenticateLocalAccount,
+  findLocalAccountByToken,
+  getLocalProfile,
+  getLocalWallet,
+  isBackendUnavailable,
+  isLocalToken,
+  toLocalToken,
+  type LocalAccount,
+} from '../lib/localAuth'
 
 export interface AppNotification {
   id: string
@@ -23,6 +34,12 @@ type AuthContextValue = {
   loading: boolean
   login: (credentials: { username: string; password: string }) => Promise<void>
   loginSuccess: (token: string) => Promise<void>
+  /** Ouvre une session en mode local autonome (aucun backend ni Supabase). */
+  loginLocal: (account: LocalAccount) => Promise<void>
+  /** Ouvre la session de démonstration (données fictives, aucun serveur requis). */
+  enterDemoMode: () => Promise<void>
+  /** Vrai si la session courante est locale (compte stocké dans le navigateur). */
+  isLocalMode: boolean
   refreshUserData: () => Promise<void>
   logout: () => void
   notifications: AppNotification[]
@@ -167,6 +184,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshUserData = useCallback(async () => {
+    const storedToken = localStorage.getItem('token')
+    if (isLocalToken(storedToken)) {
+      const account = findLocalAccountByToken(storedToken)
+      if (!account) {
+        localStorage.removeItem('token')
+        clearSession()
+        setLoading(false)
+        return
+      }
+      setUser(getLocalProfile(account))
+      setWallet(await getLocalWallet(account))
+      setIsAuthenticated(true)
+      setLoading(false)
+      return
+    }
+
     if (isSupabaseConfigured && supabase) {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
@@ -281,6 +314,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [applyToken, refreshUserData])
 
+  const loginLocal = useCallback(
+    async (account: LocalAccount) => {
+      localStorage.setItem('token', toLocalToken(account))
+      delete api.defaults.headers.common.Authorization
+      await refreshUserData()
+      setNotifications((prev) => [
+        {
+          id: Math.random().toString(36).substring(2, 9),
+          title: 'Mode Local / Hors-ligne',
+          message: LOCAL_MODE_MESSAGE,
+          timestamp: new Date(),
+          read: false,
+          type: 'info',
+        },
+        ...prev,
+      ])
+    },
+    [refreshUserData]
+  )
+
   const login = useCallback(
     async (credentials: { username: string; password: string }) => {
       if (isSupabaseConfigured && supabase) {
@@ -309,11 +362,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const response = await api.post<AuthResponse>('/v1/auth/authenticate', credentials)
-      await loginSuccess(response.data.token)
+      // Compte créé sur cet appareil en mode local : inutile d'interroger un serveur
+      const localAccount = isSupabaseConfigured
+        ? null
+        : await authenticateLocalAccount(credentials.username, credentials.password)
+      if (localAccount) {
+        await loginLocal(localAccount)
+        return
+      }
+
+      try {
+        const response = await api.post<AuthResponse>('/v1/auth/authenticate', credentials)
+        await loginSuccess(response.data.token)
+      } catch (error) {
+        if (!isSupabaseConfigured && isBackendUnavailable(error)) {
+          throw new Error(
+            "Aucun serveur disponible et aucun compte local ne correspond. Créez un compte (mode local) ou utilisez le Mode Démo.",
+            { cause: error }
+          )
+        }
+        throw error
+      }
     },
-    [loginSuccess]
+    [loginSuccess, loginLocal]
   )
+
+  const enterDemoMode = useCallback(async () => {
+    localStorage.setItem('token', 'sw-demo-session')
+    await refreshUserData()
+  }, [refreshUserData])
 
   useEffect(() => {
     let token = localStorage.getItem('token')
@@ -334,6 +411,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshUserData().catch(() => undefined)
   }, [clearSession, refreshUserData])
 
+  // Recalculé quand l'utilisateur change (le token local est posé juste avant setUser)
+  const isLocalMode = isAuthenticated && !!user && isLocalToken(localStorage.getItem('token'))
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -342,6 +422,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       loginSuccess,
+      loginLocal,
+      enterDemoMode,
+      isLocalMode,
       refreshUserData,
       logout,
       notifications,
@@ -356,6 +439,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       login,
       loginSuccess,
+      loginLocal,
+      enterDemoMode,
+      isLocalMode,
       refreshUserData,
       logout,
       notifications,

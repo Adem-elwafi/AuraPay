@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react'
 import { getApiErrorMessage } from '../api/axiosConfig'
 import { useAuth } from '../context/AuthContext'
+import { isSupabaseConfigured } from '../lib/supabase'
 import Button from './ui/Button'
 import TextField from './ui/TextField'
 
@@ -11,7 +12,7 @@ const LEGACY_REMEMBER_KEY = 'smartwallet_remembered_user'
 
 export default function Login() {
   const navigate = useNavigate()
-  const { login } = useAuth()
+  const { login, enterDemoMode } = useAuth()
 
   const [form, setForm] = useState({
     identifier: '',
@@ -86,6 +87,17 @@ export default function Login() {
       setServerError(
         getApiErrorMessage(err, 'Identifiants incorrects ou session impossible à démarrer. Veuillez réessayer.')
       )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDemo = async () => {
+    setServerError(null)
+    setLoading(true)
+    try {
+      await enterDemoMode()
+      navigate('/dashboard')
     } finally {
       setLoading(false)
     }
@@ -175,6 +187,19 @@ export default function Login() {
             {loading ? 'Connexion…' : 'SE CONNECTER'}
           </Button>
         </div>
+
+        {!isSupabaseConfigured && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleDemo}
+              disabled={loading}
+              className="text-xs font-medium text-slate-500 underline-offset-4 transition hover:text-emerald-700 hover:underline cursor-pointer disabled:opacity-50"
+            >
+              Essayer en Mode Démo / Local
+            </button>
+          </div>
+        )}
       </form>
     </div>
   )
