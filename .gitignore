@@ -29,8 +29,7 @@ smart-wallet-ui/graphify-out/
 capture_*.js
 take_*.js
 *.png
-!smart-wallet-ui/public/fintech_mockup.png
-!smart-wallet-ui/public/gold_card.png
+!smart-wallet-ui/public/*.png
 !smart-wallet-ui/src/assets/*.png
 smart-wallet-ui/public/reference_*
 smart-wallet-ui/public/vaultis_logo_concept.jpg
