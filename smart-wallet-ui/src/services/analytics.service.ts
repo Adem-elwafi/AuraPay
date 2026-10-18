@@ -109,6 +109,7 @@ export const getDashboardChart = async (): Promise<ChartDataPoint[]> => {
 
           for (const tx of txs) {
             const d = new Date(tx.timestamp);
+            if (isNaN(d.getTime())) continue;
             const label = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
             const delta = tx.type === 'CREDIT' ? Number(tx.amount) : -Number(tx.amount);
             runningBalance += delta;
@@ -133,6 +134,7 @@ export const getDashboardChart = async (): Promise<ChartDataPoint[]> => {
 
       for (const tx of localTxs) {
         const d = new Date(tx.timestamp);
+        if (isNaN(d.getTime())) continue;
         const label = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`;
         const delta = tx.type === 'CREDIT' ? Number(tx.amount) : -Number(tx.amount);
         runningBalance += delta;

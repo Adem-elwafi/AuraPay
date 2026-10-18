@@ -40,12 +40,16 @@ const mergeWithPending = (
   const pending: DisplayTransaction[] = safePendingTxs
     .filter((local) => {
       const localTime = new Date(local.timestamp).getTime();
-      return !safeServerTxs.some(
-        (tx) =>
+      const safeLocalTime = isNaN(localTime) ? 0 : localTime;
+      return !safeServerTxs.some((tx) => {
+        const txTime = new Date(tx.timestamp).getTime();
+        const safeTxTime = isNaN(txTime) ? 0 : txTime;
+        return (
           tx.type === local.type &&
           Math.abs(Number(tx.amount) - Number(local.amount)) < 0.0005 &&
-          Math.abs(new Date(tx.timestamp).getTime() - localTime) < DEDUPE_WINDOW_MS
-      );
+          Math.abs(safeTxTime - safeLocalTime) < DEDUPE_WINDOW_MS
+        );
+      });
     })
     .map((local) => ({
       // Negative ids never collide with server ids
@@ -62,9 +66,11 @@ const mergeWithPending = (
 
   if (pending.length === 0) return safeServerTxs;
 
-  return [...pending, ...safeServerTxs].sort(
-    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-  );
+  return [...pending, ...safeServerTxs].sort((a, b) => {
+    const timeA = new Date(a.timestamp).getTime();
+    const timeB = new Date(b.timestamp).getTime();
+    return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
+  });
 };
 
 export default function DashboardPage() {

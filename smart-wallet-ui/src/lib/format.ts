@@ -73,20 +73,48 @@ export function formatPct(value: number, { signed = true }: FormatPctOptions = {
   return `${signed ? (n >= 0 ? "+" : "-") : ""}${s} %`;
 }
 
-export const formatShortDate = (d: string | number | Date): string =>
-  new Intl.DateTimeFormat(getSavedLanguage(), { day: "numeric", month: "short" }).format(new Date(d));
+export const parseSafeDate = (d: unknown): Date | null => {
+  if (!d) return null;
+  const parsed = d instanceof Date ? d : new Date(d as string | number);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
 
-export const formatDateTime = (d: string | number | Date): string =>
-  new Intl.DateTimeFormat(getSavedLanguage(), {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(d));
+export const formatShortDate = (d: unknown): string => {
+  const date = parseSafeDate(d);
+  if (!date) return "";
+  try {
+    return new Intl.DateTimeFormat(getSavedLanguage(), { day: "numeric", month: "short" }).format(date);
+  } catch {
+    return "";
+  }
+};
 
-export const formatLongDate = (d: string | number | Date): string =>
-  new Intl.DateTimeFormat(getSavedLanguage(), {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  }).format(new Date(d));
+export const formatDateTime = (d: unknown): string => {
+  const date = parseSafeDate(d);
+  if (!date) return "Récemment";
+  try {
+    return new Intl.DateTimeFormat(getSavedLanguage(), {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date);
+  } catch {
+    return "Récemment";
+  }
+};
+
+export const formatLongDate = (d: unknown): string => {
+  const date = parseSafeDate(d);
+  if (!date) return "";
+  try {
+    return new Intl.DateTimeFormat(getSavedLanguage(), {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    }).format(date);
+  } catch {
+    return "";
+  }
+};
+

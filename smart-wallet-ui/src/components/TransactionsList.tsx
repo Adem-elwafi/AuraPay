@@ -146,7 +146,13 @@ const TransactionsList: React.FC<TransactionsListProps> = ({
       const isCredit = currentAccountNumber
         ? tx.recipientAccountNumber === currentAccountNumber
         : tx.type === "CREDIT";
-      const formattedDate = tx.timestamp ? new Date(tx.timestamp).toLocaleString("fr-FR") : "";
+      let formattedDate = "";
+      try {
+        const d = tx.timestamp ? new Date(tx.timestamp) : null;
+        if (d && !isNaN(d.getTime())) formattedDate = d.toLocaleString("fr-FR");
+      } catch {
+        formattedDate = "";
+      }
       return [
         tx.id,
         formattedDate,
