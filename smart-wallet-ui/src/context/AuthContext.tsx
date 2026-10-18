@@ -210,6 +210,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             supabase.from('wallets').select('*').eq('user_id', session.user.id).maybeSingle(),
           ])
 
+          let walletData = walletRes.data;
+          if (!walletData) {
+            const newAcc = `SW-${Math.floor(1000000000 + Math.random() * 9000000000)}`;
+            const { data: createdWallet } = await supabase
+              .from('wallets')
+              .insert({
+                user_id: session.user.id,
+                balance: 1000.00,
+                currency: 'EUR',
+                account_number: newAcc,
+              })
+              .select('*')
+              .maybeSingle();
+            if (createdWallet) walletData = createdWallet;
+          }
+
           setUser({
             username: profileRes.data?.username || session.user.user_metadata?.username || session.user.email?.split('@')[0] || 'Utilisateur',
             fullName: profileRes.data?.full_name || session.user.user_metadata?.full_name || '',
@@ -218,9 +234,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           })
 
           setWallet({
-            balance: Number(walletRes.data?.balance) || 0,
-            currency: walletRes.data?.currency || 'TND',
-            accountNumber: walletRes.data?.account_number || `SW-${session.user.id.slice(0, 8)}`,
+            balance: Number(walletData?.balance ?? 0),
+            currency: walletData?.currency || 'EUR',
+            accountNumber: walletData?.account_number || `SW-${session.user.id.slice(0, 8)}`,
           })
           setIsAuthenticated(true)
         } catch (e) {
@@ -248,8 +264,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     if (token === 'sw-demo-session') {
+      const demoBalance = Number(localStorage.getItem('sw_demo_balance') || '79.98');
       setUser((prev) => prev || { id: 1, username: 'adem_dev', fullName: 'Adem Elwafi', email: 'adem@smartwallet.com', avatarUrl: '' })
-      setWallet((prev) => prev || { id: 1, balance: 79.98, currency: 'EUR', accountNumber: 'SW-3 6395 5398 7', active: true })
+      setWallet({ balance: demoBalance, currency: 'EUR', accountNumber: 'SW-3 6395 5398 7' })
       setIsAuthenticated(true)
       setLoading(false)
       return
