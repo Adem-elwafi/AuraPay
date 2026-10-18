@@ -1,0 +1,30 @@
+Tu es l'agent Claude chargé de résoudre les 3 problèmes de déploiement et d'exécution sur Vercel rencontrés par l'utilisateur :
+
+1. ERREUR 1 : Icônes PWA manquantes (404)
+   "Error while trying to use the following icon from the Manifest: .../pwa-192x192.png (Download error or resource isn't a valid image)"
+   - Cause : `vite.config.ts` référence `/pwa-192x192.png` et `/pwa-512x512.png`, mais ces fichiers n'existent pas dans `smart-wallet-ui/public/`.
+   - Action :
+     * Créer un script node ou générer les images PNG valides `pwa-192x192.png` et `pwa-512x512.png` dans `smart-wallet-ui/public/` (avec l'icône émeraude élégante de Vaultis ou un canevas SVG/PNG valide).
+     * Mettre à jour `smart-wallet-ui/public/` pour que le manifest PWA charge les icônes sans aucune erreur 404.
+
+2. ERREUR 2 : Erreur 405 Method Not Allowed lors de la création de compte (`POST /api/v1/auth/register`)
+   - Cause : Sur Vercel, l'application est déployée en tant que SPA statique. Si les variables Supabase (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) ne sont pas encore injectées dans Vercel, `isSupabaseConfigured` vaut false et le code tente un `api.post('/v1/auth/register')` vers Vercel (qui n'a pas de serveur Spring Boot et renvoie 405).
+   - Action :
+     * Dans `Register.tsx` et `Login.tsx` :
+       1. Si Supabase est configuré, utiliser Supabase Auth (déjà mis en place).
+       2. Si Supabase n'est PAS configuré ET qu'aucun backend Spring Boot n'est accessible (erreur 405 ou réseau sur `api.post`) :
+          Activer le **MODE LOCAL AUTONOME (Offline-First)** !
+          Créer le profil localement dans IndexedDB / localStorage, initialiser le portefeuille local avec solde 0.000 DT, connecter automatiquement l'utilisateur et le rediriger vers le Dashboard avec un message amical ("Connecté en Mode Local / Hors-ligne. Configurez Supabase pour la synchronisation Cloud").
+          L'utilisateur ne doit JAMAIS être bloqué par un écran d'erreur 405 !
+       3. Dans `Login.tsx`, permettre également la connexion en mode local si le compte a été créé localement ou proposer le bouton "Mode Démo / Local".
+
+3. ERREUR 3 : Violation Permissions Policy unload (`unload is not allowed in this document`)
+   - Cause : `sockjs-client` attache un écouteur sur `unload` qui est désormais bloqué par les navigateurs modernes. De plus, sur Vercel, aucun serveur WebSocket `/ws` n'est disponible.
+   - Action :
+     * Dans `smart-wallet-ui/src/context/AuthContext.tsx` et `src/hooks/useWebSocket.ts` :
+       N'activer le WebSocket STOMP que si `import.meta.env.VITE_WS_URL` est explicitement défini OU si on est en environnement de développement local avec Spring Boot (`window.location.hostname === 'localhost'`).
+       Sur Vercel statique en production, désactiver SockJS pour éviter d'inonder la console d'erreurs et de violations de politique.
+
+4. Validation :
+   - Tester avec `npm run build` dans `smart-wallet-ui` (doit être 100% vert, 0 erreur).
+   - Rédiger un compte-rendu clair dans `CLAUDE_VERCEL_FIXES_REPORT.md`.

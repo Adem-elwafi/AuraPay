@@ -191,6 +191,17 @@ export default function DashboardPage() {
     });
   }, [loadData, loadAnalytics]);
 
+  // Écoute des mises à jour temps réel (Supabase Realtime ou virement inter-onglets)
+  useEffect(() => {
+    const handleTxUpdate = () => {
+      void loadData();
+      void loadAnalytics();
+      void refreshUserData().catch(() => undefined);
+    };
+    window.addEventListener('vaultis-tx-updated', handleTxUpdate);
+    return () => window.removeEventListener('vaultis-tx-updated', handleTxUpdate);
+  }, [loadData, loadAnalytics, refreshUserData]);
+
   const handleTransactionSuccess = useCallback(() => {
     void loadData();
     void loadAnalytics();

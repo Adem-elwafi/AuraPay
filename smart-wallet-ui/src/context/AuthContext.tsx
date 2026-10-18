@@ -302,6 +302,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession])
 
+  // Écoute Realtime native avec Supabase (Postgres Changes)
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase || !isAuthenticated) return;
+    const client = supabase;
+
+    let channel: ReturnType<typeof client.channel> | null = null;
+    let cancelled = false;
+
+    const setupRealtime = async () => {
+      const { data: { session } } = await client.auth.getSession();
+      if (!session?.user?.id || cancelled) return;
+
+      const userId = session.user.id;
+      channel = client
+        .channel(`supabase-realtime-user-${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'wallets',
+            filter: `user_id=eq.${userId}`,
+          },
+          (payload) => {
+            const newRow = payload.new as { balance?: number; currency?: string; account_number?: string } | undefined;
+            if (newRow && newRow.balance !== undefined) {
+              handleWalletUpdate({
+                balance: Number(newRow.balance),
+                currency: newRow.currency || 'TND',
+                accountNumber: newRow.account_number || '',
+              });
+            } else {
+              void refreshUserData().catch(() => undefined);
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'transactions',
+            filter: `user_id=eq.${userId}`,
+          },
+          () => {
+            void refreshUserData().catch(() => undefined);
+            window.dispatchEvent(new CustomEvent('vaultis-tx-updated'));
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('[Supabase Realtime] Connecté aux changements de portefeuille et transactions');
+          }
+        });
+    };
+
+    void setupRealtime();
+
+    return () => {
+      cancelled = true;
+      if (channel) {
+        void client.removeChannel(channel);
+      }
+    };
+  }, [isAuthenticated, handleWalletUpdate, refreshUserData]);
+
   const loginSuccess = useCallback(async (token: string) => {
     applyToken(token)
     setIsAuthenticated(true)

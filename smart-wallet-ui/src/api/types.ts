@@ -33,7 +33,7 @@ export interface DepositRequest {
 }
 
 export interface TransactionResponse {
-    id: number;
+    id: number | string;
     amount: number;
     timestamp: string;
     type: TransactionType;

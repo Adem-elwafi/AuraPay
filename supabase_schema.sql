@@ -156,3 +156,39 @@ CREATE TRIGGER on_auth_user_created
 CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON public.transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_timestamp ON public.transactions(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_wallets_user_id ON public.wallets(user_id);
+
+-- ==============================================================================
+-- AUTOMATIC WALLET BALANCE UPDATE TRIGGER
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.update_wallet_balance_on_tx()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.user_id IS NOT NULL THEN
+        IF NEW.type = 'CREDIT' THEN
+            UPDATE public.wallets
+            SET balance = balance + NEW.amount,
+                updated_at = NOW()
+            WHERE user_id = NEW.user_id;
+        ELSIF NEW.type = 'DEBIT' THEN
+            UPDATE public.wallets
+            SET balance = balance - NEW.amount,
+                updated_at = NOW()
+            WHERE user_id = NEW.user_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS tr_update_wallet_balance ON public.transactions;
+CREATE TRIGGER tr_update_wallet_balance
+    AFTER INSERT ON public.transactions
+    FOR EACH ROW
+    EXECUTE FUNCTION public.update_wallet_balance_on_tx();
+
+-- ==============================================================================
+-- SUPABASE REALTIME REPLICATION
+-- ==============================================================================
+ALTER PUBLICATION supabase_realtime ADD TABLE public.wallets;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.transactions;
+

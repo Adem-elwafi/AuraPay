@@ -245,6 +245,21 @@ class SyncEngine {
       throw error;
     }
 
+    // Update wallet balance in Supabase if user exists
+    if (userId) {
+      const { data: wallet } = await supabase.from('wallets').select('*').eq('user_id', userId).maybeSingle();
+      if (wallet) {
+        const delta = payload.type === 'CREDIT' ? Number(payload.amount) : -Number(payload.amount);
+        await supabase
+          .from('wallets')
+          .update({
+            balance: (Number(wallet.balance) || 0) + delta,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', userId);
+      }
+    }
+
     // Mark local transaction as 'synced' in IndexedDB
     const localTx = await db.transactions
       .where('clientUuid')
