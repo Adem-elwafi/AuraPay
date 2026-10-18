@@ -260,7 +260,9 @@ export const getTransactionHistory = async (): Promise<TransactionResponse[]> =>
 
       if (error) {
         console.warn('Erreur récupération transactions Supabase:', error);
-      } else if (data) {
+        return [];
+      }
+      if (Array.isArray(data)) {
         return data.map((row) => ({
           id: row.id,
           amount: Number(row.amount),
@@ -272,10 +274,17 @@ export const getTransactionHistory = async (): Promise<TransactionResponse[]> =>
           recipientAccountNumber: row.recipient_account_number ?? null,
         }));
       }
+      return [];
     }
+    return [];
   }
 
-  const response = await axiosInstance.get<TransactionResponse[]>('/v1/transactions/history');
-  return response.data;
+  try {
+    const response = await axiosInstance.get<TransactionResponse[]>('/v1/transactions/history');
+    return Array.isArray(response.data) ? response.data : [];
+  } catch (err) {
+    console.warn('Erreur appel getTransactionHistory API:', err);
+    return [];
+  }
 };
 

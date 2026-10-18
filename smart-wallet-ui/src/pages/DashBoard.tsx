@@ -34,10 +34,13 @@ const mergeWithPending = (
   pendingTxs: LocalTransaction[],
   accountNumber?: string
 ): DisplayTransaction[] => {
-  const pending: DisplayTransaction[] = pendingTxs
+  const safeServerTxs = Array.isArray(serverTxs) ? serverTxs : [];
+  const safePendingTxs = Array.isArray(pendingTxs) ? pendingTxs : [];
+
+  const pending: DisplayTransaction[] = safePendingTxs
     .filter((local) => {
       const localTime = new Date(local.timestamp).getTime();
-      return !serverTxs.some(
+      return !safeServerTxs.some(
         (tx) =>
           tx.type === local.type &&
           Math.abs(Number(tx.amount) - Number(local.amount)) < 0.0005 &&
@@ -57,9 +60,9 @@ const mergeWithPending = (
       pendingSync: true,
     }));
 
-  if (pending.length === 0) return serverTxs;
+  if (pending.length === 0) return safeServerTxs;
 
-  return [...pending, ...serverTxs].sort(
+  return [...pending, ...safeServerTxs].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   );
 };
@@ -137,7 +140,7 @@ export default function DashboardPage() {
 
     try {
       const txData = await getTransactionHistory();
-      if (txData && txData.length > 0) {
+      if (Array.isArray(txData)) {
         setTransactions(txData);
       } else {
         setTransactions([]);
@@ -238,7 +241,8 @@ export default function DashboardPage() {
 
   // Spending categories computed dynamically from debit transactions
   const spendingBreakdown = useMemo<SpendingCategory[]>(() => {
-    const debits = transactions.filter((t) => t.type === "DEBIT");
+    const safeTxs = Array.isArray(transactions) ? transactions : [];
+    const debits = safeTxs.filter((t) => t.type === "DEBIT");
     if (debits.length === 0) {
       return [];
     }
@@ -261,7 +265,8 @@ export default function DashboardPage() {
 
   // Stat items with real values, trends and sparkline curves
   const statItems = useMemo<StatItem[]>(() => {
-    const chartSeries = chartData.map((p) => Number(p.amount)).filter((n) => !isNaN(n));
+    const safeChart = Array.isArray(chartData) ? chartData : [];
+    const chartSeries = safeChart.map((p) => Number(p.amount)).filter((n) => !isNaN(n));
     const revenuesTrend = chartSeries.length >= 2 ? chartSeries : [0, 0];
     const expensesTrend =
       chartSeries.length >= 2

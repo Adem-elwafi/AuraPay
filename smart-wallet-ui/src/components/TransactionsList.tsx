@@ -60,8 +60,9 @@ const TransactionsList: React.FC<TransactionsListProps> = ({
       setLoading(true);
       setError(null);
       const data = await getTransactionHistory();
-      setTransactions(data);
-      onLoad?.(data);
+      const safeData = Array.isArray(data) ? data : [];
+      setTransactions(safeData);
+      onLoad?.(safeData);
     } catch (err) {
       setError("Impossible de charger l'historique des transactions");
       console.error("Error loading transactions:", err);
@@ -71,7 +72,7 @@ const TransactionsList: React.FC<TransactionsListProps> = ({
   };
 
   useEffect(() => {
-    if (initialTransactions.length > 0) {
+    if (Array.isArray(initialTransactions)) {
       setTransactions(initialTransactions);
     }
   }, [initialTransactions]);
@@ -92,7 +93,8 @@ const TransactionsList: React.FC<TransactionsListProps> = ({
 
   // Filter Logic
   const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
+    const list = Array.isArray(transactions) ? transactions : [];
+    return list.filter((tx) => {
       const isCredit = currentAccountNumber
         ? tx.recipientAccountNumber === currentAccountNumber
         : tx.type === "CREDIT";
