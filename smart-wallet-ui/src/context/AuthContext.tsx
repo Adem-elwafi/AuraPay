@@ -358,7 +358,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .on(
           'postgres_changes',
           {
-            event: 'INSERT',
+            event: '*',
             schema: 'public',
             table: 'transactions',
             filter: `user_id=eq.${userId}`,
