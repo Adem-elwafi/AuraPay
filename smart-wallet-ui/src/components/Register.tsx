@@ -131,9 +131,8 @@ export default function Register() {
       }, 1200)
     } catch (err: unknown) {
       console.error('Erreur inscription', err)
-      const customMsg = err instanceof Error ? err.message : null
       setServerError(
-        customMsg || getApiErrorMessage(err, "Une erreur est survenue lors de l'inscription. Vérifiez les informations saisies.")
+        getApiErrorMessage(err, "Une erreur est survenue lors de l'inscription. Vérifiez les informations saisies.")
       )
     } finally {
       setLoading(false)

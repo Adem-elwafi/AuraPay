@@ -62,10 +62,19 @@ export const getApiErrorMessage = (error: unknown, fallback: string): string => 
     if (axios.isAxiosError(error)) {
         const data: unknown = error.response?.data;
         if (typeof data === 'string' && data.trim()) {
+            if (data.includes('Username already in use')) return "Ce nom d'utilisateur est déjà utilisé.";
+            if (data.includes('Email already in use')) return "Cette adresse e-mail est déjà utilisée.";
             return data;
         }
-        if (data && typeof data === 'object' && 'message' in data && typeof data.message === 'string' && data.message) {
-            return data.message;
+        if (data && typeof data === 'object') {
+            if ('message' in data && typeof data.message === 'string' && data.message) {
+                if (data.message.includes('Username already in use')) return "Ce nom d'utilisateur est déjà utilisé.";
+                if (data.message.includes('Email already in use')) return "Cette adresse e-mail est déjà utilisée.";
+                return data.message;
+            }
+            if ('error' in data && typeof data.error === 'string' && data.error) {
+                return data.error;
+            }
         }
         return fallback;
     }
